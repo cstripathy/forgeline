@@ -4,8 +4,8 @@ Each milestone has exit criteria. A milestone is done only when its criteria are
 demonstrated, not when the code exists. The order puts the trust model early because it is
 the project's differentiator.
 
-M1 progress: step 1 (model, JSON Schema, validation) is done. Remaining: YAML loader, DAG
-planner, executor, `forgeline run`, and design note 002 on the spec and permission fields.
+M1 progress: step 1 (model, JSON Schema, validation) is done. The remaining steps, with
+acceptance criteria, are in [PLAN.md](PLAN.md).
 
 | # | Milestone | Exit criteria | Status |
 | --- | --- | --- | --- |
