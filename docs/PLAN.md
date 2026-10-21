@@ -17,6 +17,9 @@ Open this repository in Claude Code and paste:
 - M0 foundation: done. Repo, Apache-2.0 license, docs, Go skeleton, CI with a pinned checkout.
 - M1 step 1: done. `internal/pipeline` has the model, `Validate`, and a generated JSON Schema
   with a drift test. `forgeline schema` prints it.
+- M1 step 2: done. `pipeline.Load` and `LoadFile` read YAML, reject unknown fields, and return
+  `*ValidationError` unchanged. Tests and `testdata/` cover valid, syntax error, unknown field,
+  empty, and multi-problem files.
 - Everything else is not started.
 
 ## Decisions already made
@@ -36,7 +39,7 @@ Change any of these by writing a short design note first.
 M1 exit criterion: `forgeline run pipeline.yaml` runs a sample pipeline on a laptop and skips
 steps whose inputs have not changed.
 
-### Step 2: YAML loader (not started)
+### Step 2: YAML loader (done)
 
 - Add `sigs.k8s.io/yaml`. Check its license and note it in the commit message.
 - In `internal/pipeline`, add `Load(r io.Reader) (*Pipeline, error)` and
@@ -46,9 +49,9 @@ steps whose inputs have not changed.
   field, and several validation problems at once.
 - Acceptance: YAML syntax errors say where they are. Validation errors keep field paths.
   Tests cover valid files, each invalid case, and an empty file.
-- Known limit: converting YAML to JSON loses line numbers for validation errors. Decide
-  whether that is acceptable or whether a YAML library with node positions is worth the cost.
-  Record the decision in the commit message.
+- Known limit: converting YAML to JSON loses line numbers for validation errors. Decision:
+  acceptable for now. Syntax errors keep line numbers and validation errors keep field paths.
+  Revisit if users find paths hard to map back to the file.
 
 ### Step 3: DAG planner (not started)
 
