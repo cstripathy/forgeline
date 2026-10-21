@@ -122,7 +122,7 @@ Before step 1 starts, M1 should be proven once on a machine with Docker (see ste
 Each step below ends with a green `make ci`; steps that touch trust or interfaces start with a
 design note.
 
-### Step 7: design note 003, control plane (not started)
+### Step 7: design note 003, control plane (done)
 
 - Write `docs/design/003-control-plane.md` covering: the run and step state machines
   (queued, running, succeeded, failed, canceled; steps also cached and skipped), the data
@@ -133,6 +133,8 @@ design note.
 - State what M2 does not do: no multi-tenant isolation, no sandbox beyond container defaults,
   no secrets management. Those are M3.
 - Acceptance: the note names every table and endpoint step 8 to 12 will add.
+- Done: `docs/design/003-control-plane.md`. Still open there: upload format and size limits,
+  retention. The GitHub credential for M2 is a fine-grained token; a GitHub App comes later.
 
 ### Step 8: run store (not started)
 
