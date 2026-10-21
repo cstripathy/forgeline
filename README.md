@@ -52,6 +52,30 @@ The schema is generated from the Go types in `internal/pipeline` and committed a
 
 Requires Go 1.24 or newer.
 
+## Try the example
+
+`examples/hello/pipeline.yaml` has three steps: two independent ones feed a third that needs
+both. It runs each step in a `docker run` container, so Docker must be running.
+
+```
+make build
+./bin/forgeline run examples/hello/pipeline.yaml   # all steps: ran
+./bin/forgeline run examples/hello/pipeline.yaml   # all steps: cached
+echo "changed" > examples/hello/src/a.txt
+./bin/forgeline run examples/hello/pipeline.yaml   # shout-a and combine: ran; shout-b: cached
+```
+
+The workspace is the pipeline file's directory, mounted at `/workspace`. A step is cached only
+if it declares `inputs` and its last run with the same image, command, env, workdir and input
+file contents succeeded. Cache records live in `.forgeline/cache`; `--no-cache` ignores them.
+See [design note 002](docs/design/002-spec-extensions.md) for the exact key and its limits.
+Containers run as the image's default user, so on Linux files they create (`out/`) may be
+owned by root.
+
+Status: the cache logic, scheduler and CLI are covered by tests that use a fake executor. The
+Docker path has not been run end to end in the environment this was written in (no Docker
+daemon), so treat it as unverified until you have run the example once.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).

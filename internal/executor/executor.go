@@ -28,12 +28,18 @@ type StepRun struct {
 	Timeout time.Duration
 	// Workspace is the host directory mounted at /workspace.
 	Workspace string
+	// Inputs are workspace-relative globs that make up the step's cache key. Real executors
+	// ignore them; the cache wrapper reads them.
+	Inputs []string
 }
 
 // Result describes a step that ran to completion. A non-zero ExitCode is a failed step,
 // not an error.
 type Result struct {
 	ExitCode int
+	// Cached is set by the cache wrapper when the step was not run because an earlier
+	// success with the same cache key exists.
+	Cached bool
 }
 
 // Executor runs one step and streams its combined stdout and stderr to logs.

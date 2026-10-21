@@ -27,6 +27,8 @@ Open this repository in Claude Code and paste:
   `internal/scheduler` runs a graph with bounded parallelism and skips dependents of failures.
 - M1 step 5: done. `docs/design/002-spec-extensions.md` defines `inputs`, the cache key, and
   reserved `permissions`. Only `steps[].inputs` is in the types, schema and validation.
+- M1 step 6: done in code and tests with a fake executor. NOT yet run against real Docker:
+  run `examples/hello` twice on a machine with Docker before treating M1 as proven.
 - Everything else is not started.
 
 ## Decisions already made
@@ -97,7 +99,7 @@ permission fields in the spec.
 - Add only the fields step 6 needs to the types, with schema regeneration and validation tests.
 - Acceptance: the note states what is implemented now versus reserved.
 
-### Step 6: `forgeline run` with caching (not started)
+### Step 6: `forgeline run` with caching (done; real Docker run unverified)
 
 - `forgeline run <file>` loads, validates, plans, and runs. Print one status line per step
   (ran, cached, failed, skipped). Exit non-zero on any failure.

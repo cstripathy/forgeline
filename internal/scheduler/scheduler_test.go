@@ -179,3 +179,18 @@ func TestRunPassesStepFieldsAndLogs(t *testing.T) {
 type writerFunc func([]byte)
 
 func (w writerFunc) Write(p []byte) (int, error) { w(p); return len(p), nil }
+
+func TestRunCachedCountsAsSuccess(t *testing.T) {
+	g := plan(t, st("a"), st("b", "a"))
+	f := &executor.Fake{Handler: func(_ context.Context, s executor.StepRun, _ io.Writer) (executor.Result, error) {
+		return executor.Result{Cached: s.ID == "a"}, nil
+	}}
+	r := Run(context.Background(), g, f, Options{})
+	got := statuses(r)
+	if got["a"] != StatusCached || got["b"] != StatusSucceeded {
+		t.Fatalf("statuses = %v, want a cached and b succeeded", got)
+	}
+	if !r.OK() || r.Err() != nil {
+		t.Fatalf("a cached step should count as success: %v", r.Err())
+	}
+}

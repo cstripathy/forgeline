@@ -19,10 +19,14 @@ type Status string
 
 const (
 	StatusSucceeded Status = "succeeded"
+	StatusCached    Status = "cached"   // not run: an earlier success with the same cache key exists
 	StatusFailed    Status = "failed"   // exited non-zero, timed out, or could not run
 	StatusSkipped   Status = "skipped"  // a step it needs did not succeed
 	StatusCanceled  Status = "canceled" // the context ended before or while it ran
 )
+
+// ok reports whether the step counts as a success for its dependents.
+func (s Status) ok() bool { return s == StatusSucceeded || s == StatusCached }
 
 // StepResult is what happened to one step.
 type StepResult struct {
@@ -42,7 +46,7 @@ type Report struct {
 // OK reports whether every step succeeded.
 func (r *Report) OK() bool {
 	for _, s := range r.Steps {
-		if s.Status != StatusSucceeded {
+		if !s.Status.ok() {
 			return false
 		}
 	}
@@ -109,7 +113,7 @@ func Run(ctx context.Context, g *pipeline.Graph, ex executor.Executor, opts Opti
 // blockedBy returns the first needed step that did not succeed, or "".
 func blockedBy(s *pipeline.Step, status map[string]Status) string {
 	for _, need := range s.Needs {
-		if status[need] != StatusSucceeded {
+		if !status[need].ok() {
 			return need
 		}
 	}
@@ -139,6 +143,8 @@ func runStep(ctx context.Context, s *pipeline.Step, ex executor.Executor, opts O
 		out.Status, out.Err = StatusFailed, err
 	case res.ExitCode != 0:
 		out.Status, out.Err = StatusFailed, fmt.Errorf("exited with code %d", res.ExitCode)
+	case res.Cached:
+		out.Status = StatusCached
 	default:
 		out.Status = StatusSucceeded
 	}
@@ -148,7 +154,7 @@ func runStep(ctx context.Context, s *pipeline.Step, ex executor.Executor, opts O
 func toStepRun(s *pipeline.Step, workspace string) (executor.StepRun, error) {
 	run := executor.StepRun{
 		ID: s.ID, Image: s.Image, Script: s.Run, Command: s.Command,
-		Env: s.Env, WorkDir: s.WorkDir, Workspace: workspace,
+		Env: s.Env, WorkDir: s.WorkDir, Workspace: workspace, Inputs: s.Inputs,
 	}
 	if s.Timeout != "" {
 		d, err := time.ParseDuration(s.Timeout)
@@ -165,7 +171,7 @@ func toStepRun(s *pipeline.Step, workspace string) (executor.StepRun, error) {
 func (r *Report) Err() error {
 	var bad []string
 	for _, s := range r.Steps {
-		if s.Status != StatusSucceeded {
+		if !s.Status.ok() {
 			bad = append(bad, fmt.Sprintf("%s (%s)", s.ID, s.Status))
 		}
 	}
