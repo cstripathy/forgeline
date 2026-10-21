@@ -20,6 +20,8 @@ Open this repository in Claude Code and paste:
 - M1 step 2: done. `pipeline.Load` and `LoadFile` read YAML, reject unknown fields, and return
   `*ValidationError` unchanged. Tests and `testdata/` cover valid, syntax error, unknown field,
   empty, and multi-problem files.
+- M1 step 3: done. `pipeline.Plan` validates, detects cycles with the path in the error, and
+  returns parallelizable layers plus a dependents map.
 - Everything else is not started.
 
 ## Decisions already made
@@ -53,7 +55,7 @@ steps whose inputs have not changed.
   acceptable for now. Syntax errors keep line numbers and validation errors keep field paths.
   Revisit if users find paths hard to map back to the file.
 
-### Step 3: DAG planner (not started)
+### Step 3: DAG planner (done)
 
 - Add `Plan(p *Pipeline) (*Graph, error)` that builds the dependency graph.
 - Detect cycles and name the path in the error, for example `cycle: a -> b -> c -> a`.
