@@ -117,6 +117,23 @@ per step (default 10 MiB) with a visible truncation marker, so one step cannot f
 - A client that reconnects sends `Last-Event-ID: <seq>` and gets only later chunks.
 - Idle streams send a `: keep-alive` comment every 15 s.
 
+## Web UI (step 12)
+
+- Static HTML, CSS and JavaScript embedded with `go:embed`, served at `/` and `/ui/`. No build
+  step, no framework, no third-party scripts or fonts.
+- The page and assets need no token. All data comes from the `/v1` API, which does.
+- **Token handling:** the UI asks for the bearer token and keeps it in `sessionStorage`, so it
+  lasts for one browser tab and is never written to disk or sent as a cookie. Because it is
+  not a cookie, other sites cannot make the browser send it, which removes CSRF.
+- **Live logs use `fetch` streaming, not `EventSource`,** because `EventSource` cannot send an
+  `Authorization` header. The UI parses the same SSE format and resumes with `Last-Event-ID`.
+- **Content Security Policy:** `default-src 'none'`, scripts, styles and connections only from
+  the same origin, no inline script or style, no framing. Everything from the server (pipeline
+  and step names, log output) is inserted as text, never as HTML.
+- The run graph is drawn from each step's `needs`, which the API reads from the stored
+  pipeline text. Status is shown with a word, a symbol, and a border style, never colour alone.
+- Step buttons under the graph are the keyboard and screen-reader path; the SVG is a picture.
+
 ## What is not decided
 
 - Retention: how long runs and logs are kept. M2 keeps everything.

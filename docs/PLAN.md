@@ -189,13 +189,21 @@ design note.
   GitHub API. Which GitHub credential type to use (GitHub App or fine-grained token) is decided
   in note 003.
 
-### Step 12: web UI with DAG run view (not started)
+### Step 12: web UI with DAG run view (done; built before step 11 because the maintainer wants a web view to try)
 
 - Static HTML and JavaScript embedded with `go:embed`, no build toolchain: a run list, a run
   page that draws the step DAG coloured by status, and a live log pane.
 - Accessibility basics: status is never colour only, keyboard navigable.
 - Acceptance: a test serves the UI; a manual check is recorded in the commit message, with a
   screenshot if a browser is available.
+- Done: `internal/server/ui/`. Go tests cover serving, security headers and no inline script or
+  style. A scripted Chromium (Playwright) check against a temporary dev server with a fake
+  executor passed: sign-in and wrong token, run list, DAG with 6 steps and 7 edges, failed and
+  skipped marking, live log, a hostile `<img onerror>` in log output rendered as plain text
+  with no element created and no dialog, keyboard step selection, cancel, sign-out, no CSP
+  violations, and no horizontal scroll at phone width. That browser script was not committed
+  (it needs Node and Playwright); the dev server used was deleted. Not checked: dark mode
+  visually, screen readers, browsers other than Chromium, real Docker output.
 
 ### Step 13: hosted demo on AWS (not started)
 

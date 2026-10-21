@@ -85,7 +85,9 @@ export FORGELINE_DATABASE_URL=postgres://...   # optional; without it runs live 
 
 The API is in [design note 003](docs/design/003-control-plane.md): `POST /v1/runs`,
 `GET /v1/runs`, `GET /v1/runs/{id}`, `POST /v1/runs/{id}/cancel`,
-`GET /v1/runs/{id}/steps/{step}/logs`. There is no web page yet; that is milestone M2 step 12.
+`GET /v1/runs/{id}/steps/{step}/logs`. Open `http://127.0.0.1:8080/` in a browser for the web UI: a run list, and a run page with the
+step graph, live logs and a cancel button. It asks for the same token and keeps it for that
+browser tab only.
 
 **Warning:** there is no sandbox beyond container defaults until milestone M3. Anyone with the
 token can run containers on the host, so keep the default loopback address or put the server

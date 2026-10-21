@@ -218,6 +218,9 @@ func TestRunSucceedsAndStoresLogs(t *testing.T) {
 	if st := stepStatuses(done); st["build"] != "succeeded" || st["test"] != "succeeded" {
 		t.Fatalf("steps = %v", st)
 	}
+	if len(done.Steps[1].Needs) != 1 || done.Steps[1].Needs[0] != "build" || len(done.Steps[0].Needs) != 0 {
+		t.Errorf("needs = %v / %v, want test to need build", done.Steps[0].Needs, done.Steps[1].Needs)
+	}
 	if done.StartedAt == nil || done.FinishedAt == nil || done.Trigger != "api" {
 		t.Errorf("run = %+v", done)
 	}
@@ -652,4 +655,62 @@ func TestLogStreamStopsWhenClientDisconnects(t *testing.T) {
 	// Cancelling the run must still work and Stop must not hang on a leaked stream handler.
 	cancel(h, run.ID)
 	h.waitStatus(run.ID, "canceled")
+}
+
+func TestUIIsServedWithStrictHeaders(t *testing.T) {
+	h := newHarness(t, &executor.Fake{})
+	tests := []struct{ path, wantType, wantBody string }{
+		{"/", "text/html", "<title>Forgeline</title>"},
+		{"/ui/app.js", "text/javascript", "Forgeline web UI"},
+		{"/ui/style.css", "text/css", "--bg"},
+	}
+	for _, tt := range tests {
+		resp, body := h.do("GET", tt.path, "", nil, "") // the page itself needs no token; the API does
+		if resp.StatusCode != 200 {
+			t.Errorf("%s: status %d, want 200", tt.path, resp.StatusCode)
+			continue
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, tt.wantType) {
+			t.Errorf("%s: Content-Type %q, want %s", tt.path, ct, tt.wantType)
+		}
+		if !strings.Contains(string(body), tt.wantBody) {
+			t.Errorf("%s: body does not contain %q", tt.path, tt.wantBody)
+		}
+		csp := resp.Header.Get("Content-Security-Policy")
+		for _, want := range []string{"default-src 'none'", "script-src 'self'", "frame-ancestors 'none'"} {
+			if !strings.Contains(csp, want) {
+				t.Errorf("%s: CSP %q lacks %q", tt.path, csp, want)
+			}
+		}
+		if strings.Contains(csp, "unsafe-inline") || strings.Contains(csp, "unsafe-eval") {
+			t.Errorf("%s: CSP must not allow unsafe-inline or unsafe-eval: %q", tt.path, csp)
+		}
+		if resp.Header.Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: missing X-Content-Type-Options: nosniff", tt.path)
+		}
+	}
+	if resp, _ := h.do("GET", "/ui/nope.js", "", nil, ""); resp.StatusCode != 404 {
+		t.Errorf("unknown asset: %d, want 404", resp.StatusCode)
+	}
+	if resp, _ := h.do("GET", "/other", "", nil, ""); resp.StatusCode != 404 {
+		t.Errorf("unknown path: %d, want 404 (only / serves the page)", resp.StatusCode)
+	}
+	if resp, _ := h.do("GET", "/v1/runs", "", nil, ""); resp.StatusCode != 401 {
+		t.Errorf("API without token: %d, want 401", resp.StatusCode)
+	}
+}
+
+// The page must not carry inline script or style, or the CSP would break it.
+func TestUIHasNoInlineScriptOrStyle(t *testing.T) {
+	h := newHarness(t, &executor.Fake{})
+	_, body := h.do("GET", "/", "", nil, "")
+	page := string(body)
+	if strings.Contains(page, "<style") || strings.Contains(page, "style=") || strings.Contains(page, " onclick=") {
+		t.Error("index.html has inline style or handlers, which the CSP blocks")
+	}
+	for _, line := range strings.Split(page, "\n") {
+		if strings.Contains(line, "<script") && !strings.Contains(line, `src="`) {
+			t.Errorf("inline script: %s", line)
+		}
+	}
 }

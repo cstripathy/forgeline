@@ -1,8 +1,10 @@
 package server
 
 import (
+	"strings"
 	"time"
 
+	"github.com/cstripathy/forgeline/internal/pipeline"
 	"github.com/cstripathy/forgeline/internal/store"
 )
 
@@ -30,6 +32,7 @@ type SourceRef struct {
 // StepJSON is the API representation of a step.
 type StepJSON struct {
 	ID         string     `json:"id"`
+	Needs      []string   `json:"needs,omitempty"`
 	Status     string     `json:"status"`
 	ExitCode   int        `json:"exit_code,omitempty"`
 	Error      string     `json:"error,omitempty"`
@@ -53,6 +56,24 @@ type ErrorJSON struct {
 type ProblemJSON struct {
 	Path string `json:"path"`
 	Msg  string `json:"msg"`
+}
+
+// runDetail is runJSON plus each step's dependencies, read from the stored pipeline text so
+// the UI can draw the graph. If the stored text no longer parses, steps simply have no needs.
+func runDetail(r store.Run, steps []store.Step) RunJSON {
+	out := runJSON(r, steps)
+	p, err := pipeline.Load(strings.NewReader(r.PipelineYAML))
+	if err != nil {
+		return out
+	}
+	needs := make(map[string][]string, len(p.Steps))
+	for _, s := range p.Steps {
+		needs[s.ID] = s.Needs
+	}
+	for i := range out.Steps {
+		out.Steps[i].Needs = needs[out.Steps[i].ID]
+	}
+	return out
 }
 
 func runJSON(r store.Run, steps []store.Step) RunJSON {

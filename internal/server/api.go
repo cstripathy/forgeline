@@ -24,6 +24,9 @@ const maxPipelineBytes = 1 << 20
 // Handler returns the HTTP handler for the API.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	index, assets := uiHandler()
+	mux.Handle("GET /{$}", index)
+	mux.Handle("GET /ui/", assets)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -192,7 +195,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Location", "/v1/runs/"+run.ID)
-	writeJSON(w, http.StatusAccepted, runJSON(got, steps))
+	writeJSON(w, http.StatusAccepted, runDetail(got, steps))
 }
 
 // saveUpload copies the source part to scratch space, enforcing the size limit.
@@ -278,7 +281,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "reading run", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, runJSON(run, steps))
+	writeJSON(w, http.StatusOK, runDetail(run, steps))
 }
 
 // handleCancel is idempotent: canceling a finished run returns it unchanged.
@@ -320,7 +323,7 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "reading run", err)
 		return
 	}
-	writeJSON(w, status, runJSON(run, steps))
+	writeJSON(w, status, runDetail(run, steps))
 }
 
 // handleLogs returns the step's stored log as plain text, or streams it live as
