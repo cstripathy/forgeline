@@ -1,0 +1,7 @@
+version: v1alpha1
+name: demo
+steps:
+  - id: build
+    image: golang:1.24
+    run: make
+    nope: true
