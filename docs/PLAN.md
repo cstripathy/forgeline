@@ -111,12 +111,91 @@ permission fields in the spec.
 
 When step 6 is done, mark M1 done in `docs/ROADMAP.md`.
 
-## After M1 (outline only)
+## M2 steps (drafted, not started)
 
-- **M2 control plane and UI:** single-binary server, Postgres, REST API, run history, live logs,
-  GitHub webhook trigger with commit status, DAG run view. This is where AWS infrastructure
-  first matters, for a hosted demo.
+M2 exit criterion (from the roadmap): a single `forgeline server` binary backed by Postgres
+accepts runs over a REST API, keeps run history, streams live logs, runs a pipeline for a
+GitHub push or pull request event and reports commit status, and shows a DAG run view in a
+browser.
+
+Before step 1 starts, M1 should be proven once on a machine with Docker (see step 6 above).
+Each step below ends with a green `make ci`; steps that touch trust or interfaces start with a
+design note.
+
+### Step 7: design note 003, control plane (not started)
+
+- Write `docs/design/003-control-plane.md` covering: the run and step state machines
+  (queued, running, succeeded, failed, canceled; steps also cached and skipped), the data
+  model, the REST resources, how logs are stored and streamed, and how a runner is attached.
+- Decide and record: Postgres driver (candidate `pgx`, MIT), migration approach (embedded SQL
+  files applied at start, no framework), HTTP stack (standard library `net/http`), auth for M2
+  (a static bearer token from config; real identity is later).
+- State what M2 does not do: no multi-tenant isolation, no sandbox beyond container defaults,
+  no secrets management. Those are M3.
+- Acceptance: the note names every table and endpoint step 8 to 12 will add.
+
+### Step 8: run store (not started)
+
+- Add `internal/store` with a `Store` interface for runs, step results and log chunks, plus an
+  in-memory implementation used by tests and a Postgres implementation.
+- Migrations are embedded SQL applied in order and recorded in a schema table.
+- Acceptance: one shared test suite runs against both implementations. The Postgres run is
+  gated on an environment variable so `make ci` passes without a database; CI sets it up.
+
+### Step 9: server, REST API and embedded runner (not started)
+
+- `forgeline server --listen :8080 --database-url ...` serves: submit a run (pipeline YAML
+  plus a source directory or checkout reference), list runs, get a run with step states, get a
+  step's logs, cancel a run.
+- The server executes queued runs with the existing scheduler and cache, in-process, with
+  bounded concurrency. Separate runner processes are out of scope until a need appears.
+- Every state change is written to the store; a server restart marks interrupted runs failed
+  with a clear reason instead of leaving them running.
+- Acceptance: handler tests with the fake executor cover submit, status transitions, failure,
+  cancel, auth rejection, and restart recovery. `forgeline submit <file> --server URL` works.
+
+### Step 10: live logs (not started)
+
+- Stream a step's logs with Server-Sent Events, replaying stored chunks first so a late
+  client sees the full log.
+- Acceptance: a test connects mid-run and receives the earlier lines then new ones in order;
+  a finished run's log is served in full.
+
+### Step 11: GitHub webhook trigger and commit status (not started)
+
+- Verify the webhook signature (HMAC SHA-256) before reading the payload, in constant time.
+- On push and pull request events, fetch the repository at the commit, read the pipeline file,
+  run it, and post commit status (pending, success, failure) through the GitHub API.
+- Trust limit, stated in the code and docs: until M3, only repositories and branches on an
+  allow list in the server config may trigger runs, and pull requests from forks are ignored.
+  Running untrusted pull request code without the M3 model would contradict the project's own
+  principles.
+- Acceptance: tests cover a valid and an invalid signature, an event from a repository not on
+  the allow list, a fork pull request being ignored, and status transitions against a fake
+  GitHub API. Which GitHub credential type to use (GitHub App or fine-grained token) is decided
+  in note 003.
+
+### Step 12: web UI with DAG run view (not started)
+
+- Static HTML and JavaScript embedded with `go:embed`, no build toolchain: a run list, a run
+  page that draws the step DAG coloured by status, and a live log pane.
+- Accessibility basics: status is never colour only, keyboard navigable.
+- Acceptance: a test serves the UI; a manual check is recorded in the commit message, with a
+  screenshot if a browser is available.
+
+### Step 13: hosted demo on AWS (not started)
+
+- Needs a decision from the maintainer first: account, region, budget, and public or private.
+- Smallest viable shape: one container image of the server, a small managed Postgres, TLS, and
+  an auth token. Infrastructure as code in the repository; no credentials in it.
+- Acceptance: a documented, repeatable deploy and teardown, with the monthly cost estimated
+  from current AWS pricing and checked against the budget before anything is created.
+
+When step 13 is done, mark M2 done in `docs/ROADMAP.md`.
+
+## After M2 (outline only)
+
 - **M3 trust and sandbox model:** the differentiator. Write the threat model first, then
   enforce permissions, then write tests that try to break them.
 
-Details for M2 and later are intentionally not written yet. Plan them when M1 is done.
+Details for M3 and later are intentionally not written yet. Plan them when M2 is done.
