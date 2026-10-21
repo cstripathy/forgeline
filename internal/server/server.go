@@ -40,7 +40,10 @@ type Config struct {
 	MaxSourceBytes int64
 	// MaxLogBytes caps the stored log of one step. Zero means 10 MiB.
 	MaxLogBytes int64
-	Logger      *slog.Logger
+	// LogPollInterval is how often a live log stream checks the store for new output.
+	// Zero means 250 ms.
+	LogPollInterval time.Duration
+	Logger          *slog.Logger
 }
 
 // Server serves the API and runs queued pipelines.
@@ -82,6 +85,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.MaxLogBytes <= 0 {
 		cfg.MaxLogBytes = 10 << 20
+	}
+	if cfg.LogPollInterval <= 0 {
+		cfg.LogPollInterval = 250 * time.Millisecond
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()

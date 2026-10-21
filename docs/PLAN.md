@@ -164,12 +164,16 @@ design note.
   was also exercised against a real local Postgres 16 (auth, persistence, failure reporting).
   Not run: a real Docker-backed run through the server (no Docker daemon in the dev sandbox).
 
-### Step 10: live logs (not started)
+### Step 10: live logs (done)
 
 - Stream a step's logs with Server-Sent Events, replaying stored chunks first so a late
   client sees the full log.
 - Acceptance: a test connects mid-run and receives the earlier lines then new ones in order;
   a finished run's log is served in full.
+- Done: SSE in `internal/server/stream.go`, `client.StreamLogs`, and `forgeline submit --wait`
+  now follows logs live. Tests cover replay then follow, multi-line chunks, resume with
+  `Last-Event-ID`, steps that never ran, errors, and client disconnect. Verified with a fake
+  executor only; not seen against real Docker output.
 
 ### Step 11: GitHub webhook trigger and commit status (not started)
 

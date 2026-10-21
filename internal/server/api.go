@@ -323,9 +323,14 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, runJSON(run, steps))
 }
 
-// handleLogs returns the step's stored log as plain text.
+// handleLogs returns the step's stored log as plain text, or streams it live as
+// Server-Sent Events when the client asks for text/event-stream.
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	runID, stepID := r.PathValue("id"), r.PathValue("step")
+	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		s.streamLogs(w, r, runID, stepID)
+		return
+	}
 	var after int64
 	wrote := false
 	for {

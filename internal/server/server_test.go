@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -446,4 +447,209 @@ func TestLogWriterTruncates(t *testing.T) {
 	if strings.Count(all.String(), "0123456789") != 1 || strings.Count(all.String(), "truncated") != 1 {
 		t.Fatalf("log not capped: %q", all.String())
 	}
+}
+
+// sseEvents reads a text/event-stream body until it closes and returns the parsed events.
+type sseEvent struct{ id, event, data string }
+
+func readSSE(t *testing.T, body io.Reader) []sseEvent {
+	t.Helper()
+	var out []sseEvent
+	var cur sseEvent
+	for _, line := range strings.Split(readAll(t, body), "\n") {
+		switch {
+		case line == "":
+			if cur != (sseEvent{}) {
+				out = append(out, cur)
+			}
+			cur = sseEvent{}
+		case strings.HasPrefix(line, "id: "):
+			cur.id = line[4:]
+		case strings.HasPrefix(line, "event: "):
+			cur.event = line[7:]
+		case strings.HasPrefix(line, "data: "):
+			cur.data = line[6:]
+		}
+	}
+	return out
+}
+
+func readAll(t *testing.T, r io.Reader) string {
+	t.Helper()
+	b, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("reading stream: %v", err)
+	}
+	return string(b)
+}
+
+func (h *harness) openStream(path, lastEventID string) *http.Response {
+	h.t.Helper()
+	req, _ := http.NewRequest("GET", h.http.URL+path, nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Accept", "text/event-stream")
+	if lastEventID != "" {
+		req.Header.Set("Last-Event-ID", lastEventID)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return resp
+}
+
+func texts(t *testing.T, events []sseEvent) []string {
+	t.Helper()
+	var out []string
+	for _, e := range events {
+		if e.event == "end" {
+			continue
+		}
+		var ev LogEvent
+		if err := json.Unmarshal([]byte(e.data), &ev); err != nil {
+			t.Fatalf("bad log event %q: %v", e.data, err)
+		}
+		out = append(out, ev.Text)
+	}
+	return out
+}
+
+// A client that connects mid-run gets the earlier lines first, then the new ones in order,
+// then an end event with the step's final status.
+func TestLogStreamReplaysThenFollows(t *testing.T) {
+	release := make(chan struct{})
+	wrote := make(chan struct{})
+	fake := &executor.Fake{Handler: func(_ context.Context, _ executor.StepRun, logs io.Writer) (executor.Result, error) {
+		io.WriteString(logs, "line 1\n")
+		io.WriteString(logs, "line 2\n")
+		close(wrote)
+		<-release
+		io.WriteString(logs, "line 3\n")
+		io.WriteString(logs, "multi\nline 4\n") // newlines inside a chunk must survive the framing
+		return executor.Result{}, nil
+	}}
+	h := newHarness(t, fake, func(c *Config) { c.LogPollInterval = 10 * time.Millisecond })
+	_, run := h.submit("version: v1alpha1\nname: s\nsteps:\n- {id: only, image: i, run: r}\n", nil)
+	<-wrote
+
+	resp := h.openStream("/v1/runs/"+run.ID+"/steps/only/logs", "")
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	// Let the stream deliver the replayed lines before the step produces more.
+	time.Sleep(60 * time.Millisecond)
+	close(release)
+
+	events := readSSE(t, resp.Body)
+	got := texts(t, events)
+	want := []string{"line 1\n", "line 2\n", "line 3\n", "multi\nline 4\n"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("chunks = %q, want %q", got, want)
+	}
+	for i, e := range events[:len(events)-1] {
+		if e.id != strconv.Itoa(i+1) {
+			t.Errorf("event %d id = %q, want %d", i, e.id, i+1)
+		}
+	}
+	last := events[len(events)-1]
+	if last.event != "end" || !strings.Contains(last.data, `"succeeded"`) {
+		t.Fatalf("last event = %+v, want end with status succeeded", last)
+	}
+}
+
+func TestLogStreamOfFinishedRunIsServedInFull(t *testing.T) {
+	fake := &executor.Fake{Handler: func(_ context.Context, s executor.StepRun, logs io.Writer) (executor.Result, error) {
+		io.WriteString(logs, "a\n")
+		io.WriteString(logs, "b\n")
+		io.WriteString(logs, "c\n")
+		if s.ID == "bad" {
+			return executor.Result{ExitCode: 1}, nil
+		}
+		return executor.Result{}, nil
+	}}
+	h := newHarness(t, fake, func(c *Config) { c.LogPollInterval = 10 * time.Millisecond })
+	_, run := h.submit("version: v1alpha1\nname: s\nsteps:\n- {id: bad, image: i, run: r}\n", nil)
+	h.waitStatus(run.ID, "failed")
+
+	resp := h.openStream("/v1/runs/"+run.ID+"/steps/bad/logs", "")
+	defer resp.Body.Close()
+	events := readSSE(t, resp.Body)
+	if got := strings.Join(texts(t, events), ""); got != "a\nb\nc\n" {
+		t.Fatalf("log = %q", got)
+	}
+	if last := events[len(events)-1]; last.event != "end" || !strings.Contains(last.data, `"failed"`) {
+		t.Fatalf("last event = %+v, want end with status failed", last)
+	}
+
+	// Reconnecting with Last-Event-ID resumes after that chunk.
+	resp2 := h.openStream("/v1/runs/"+run.ID+"/steps/bad/logs", "2")
+	defer resp2.Body.Close()
+	if got := strings.Join(texts(t, readSSE(t, resp2.Body)), ""); got != "c\n" {
+		t.Fatalf("resumed log = %q, want only the chunk after id 2", got)
+	}
+}
+
+func TestLogStreamEndsForStepsThatNeverRan(t *testing.T) {
+	fake := &executor.Fake{Handler: func(_ context.Context, s executor.StepRun, _ io.Writer) (executor.Result, error) {
+		if s.ID == "build" {
+			return executor.Result{ExitCode: 1}, nil
+		}
+		return executor.Result{}, nil
+	}}
+	h := newHarness(t, fake, func(c *Config) { c.LogPollInterval = 10 * time.Millisecond })
+	_, run := h.submit(twoSteps, nil)
+	h.waitStatus(run.ID, "failed")
+	resp := h.openStream("/v1/runs/"+run.ID+"/steps/test/logs", "")
+	defer resp.Body.Close()
+	events := readSSE(t, resp.Body) // the skipped step has no output but must still end the stream
+	if len(events) != 1 || events[0].event != "end" || !strings.Contains(events[0].data, `"skipped"`) {
+		t.Fatalf("events = %+v, want a single end event with status skipped", events)
+	}
+}
+
+func TestLogStreamErrors(t *testing.T) {
+	h := newHarness(t, &executor.Fake{})
+	_, run := h.submit(twoSteps, nil)
+	h.waitStatus(run.ID, "succeeded")
+	for name, path := range map[string]string{
+		"unknown run":  "/v1/runs/nope/steps/build/logs",
+		"unknown step": "/v1/runs/" + run.ID + "/steps/nope/logs",
+	} {
+		resp := h.openStream(path, "")
+		resp.Body.Close()
+		if resp.StatusCode != 404 {
+			t.Errorf("%s: status %d, want 404", name, resp.StatusCode)
+		}
+	}
+	resp := h.openStream("/v1/runs/"+run.ID+"/steps/build/logs", "abc")
+	resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Errorf("bad Last-Event-ID: status %d, want 400", resp.StatusCode)
+	}
+	req, _ := http.NewRequest("GET", h.http.URL+"/v1/runs/"+run.ID+"/steps/build/logs", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	if r, _ := http.DefaultClient.Do(req); r.StatusCode != 401 {
+		t.Errorf("stream without token: status %d, want 401", r.StatusCode)
+	}
+}
+
+func TestLogStreamStopsWhenClientDisconnects(t *testing.T) {
+	started := make(chan string, 1)
+	h := newHarness(t, blockingFake(started), func(c *Config) { c.LogPollInterval = 10 * time.Millisecond })
+	_, run := h.submit("version: v1alpha1\nname: s\nsteps:\n- {id: only, image: i, run: r}\n", nil)
+	<-started
+	ctx, cancelReq := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, "GET", h.http.URL+"/v1/runs/"+run.ID+"/steps/only/logs", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelReq()
+	resp.Body.Close()
+	// Cancelling the run must still work and Stop must not hang on a leaked stream handler.
+	cancel(h, run.ID)
+	h.waitStatus(run.ID, "canceled")
 }

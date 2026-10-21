@@ -101,6 +101,22 @@ per step (default 10 MiB) with a visible truncation marker, so one step cannot f
   trying it out, not for keeping history.
 - **Default listen address is loopback.** The server speaks plain HTTP; TLS comes from a proxy.
 
+## Log stream format (step 10)
+
+`GET /v1/runs/{id}/steps/{step}/logs` with `Accept: text/event-stream`:
+
+- Each stored chunk is one event: `id: <seq>` and `data: {"seq":N,"text":"..."}`. The text is
+  JSON-encoded so newlines inside a chunk cannot break the framing.
+- The stream replays stored chunks first, then follows new ones. It polls the store (default
+  250 ms) instead of using in-process notification, so it also works with several server
+  processes and costs at most one poll interval of latency.
+- It ends with `event: end` and `data: {"status":"..."}` once the step is final and everything
+  is delivered. Steps that never ran (skipped, canceled) end immediately with no chunks.
+- The step's status is read before its chunks. Output is written before a step is marked
+  final, so an empty read after a final status is a true end.
+- A client that reconnects sends `Last-Event-ID: <seq>` and gets only later chunks.
+- Idle streams send a `: keep-alive` comment every 15 s.
+
 ## What is not decided
 
 - Retention: how long runs and logs are kept. M2 keeps everything.

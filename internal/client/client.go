@@ -2,9 +2,11 @@
 package client
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -119,4 +121,75 @@ func (c *Client) Logs(ctx context.Context, id, step string) (string, error) {
 // Terminal reports whether a run status is final.
 func Terminal(status string) bool {
 	return status == "succeeded" || status == "failed" || status == "canceled"
+}
+
+// StreamLogs follows a step's log over Server-Sent Events. It calls onChunk for each chunk,
+// in order, and returns the step's final status when the server ends the stream. Pass the
+// seq of the last chunk you saw as afterSeq to resume after a dropped connection.
+func (c *Client) StreamLogs(ctx context.Context, id, step string, afterSeq int64, onChunk func(server.LogEvent)) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/v1/runs/"+id+"/steps/"+step+"/logs", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "text/event-stream")
+	if afterSeq > 0 {
+		req.Header.Set("Last-Event-ID", fmt.Sprint(afterSeq))
+	}
+	// A stream can outlive any fixed timeout; the context bounds it instead.
+	streaming := *c.HTTP
+	streaming.Timeout = 0
+	resp, err := streaming.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		e := &Error{Status: resp.StatusCode, Message: strings.TrimSpace(string(b))}
+		var body server.ErrorJSON
+		if json.Unmarshal(b, &body) == nil && body.Error != "" {
+			e.Message = body.Error
+		}
+		return "", e
+	}
+
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 64<<10), 8<<20) // a chunk is JSON-escaped text, so lines can be long
+	var event, data string
+	for sc.Scan() {
+		line := sc.Text()
+		switch {
+		case line == "":
+			if data != "" {
+				switch event {
+				case "end":
+					var end server.EndEvent
+					if err := json.Unmarshal([]byte(data), &end); err != nil {
+						return "", fmt.Errorf("decoding end event: %w", err)
+					}
+					return end.Status, nil
+				default:
+					var ev server.LogEvent
+					if err := json.Unmarshal([]byte(data), &ev); err != nil {
+						return "", fmt.Errorf("decoding log event: %w", err)
+					}
+					onChunk(ev)
+				}
+			}
+			event, data = "", ""
+		case strings.HasPrefix(line, ":"): // comment, such as a keep-alive
+		case strings.HasPrefix(line, "event: "):
+			event = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			data = strings.TrimPrefix(line, "data: ")
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return "", err
+	}
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	return "", errors.New("log stream ended before the step finished")
 }
