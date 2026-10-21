@@ -22,6 +22,9 @@ Open this repository in Claude Code and paste:
   empty, and multi-problem files.
 - M1 step 3: done. `pipeline.Plan` validates, detects cycles with the path in the error, and
   returns parallelizable layers plus a dependents map.
+- M1 step 4: done, except the real-container test has not run here (no Docker daemon in the
+  dev sandbox). `internal/executor` has the `Executor` interface, `Docker` and `Fake`;
+  `internal/scheduler` runs a graph with bounded parallelism and skips dependents of failures.
 - Everything else is not started.
 
 ## Decisions already made
@@ -64,7 +67,7 @@ steps whose inputs have not changed.
 - Acceptance: tests for a linear chain, a diamond, independent steps, a cycle, a self-cycle
   caught earlier by `Validate`, and a forward reference.
 
-### Step 4: executor and scheduler (not started)
+### Step 4: executor and scheduler (done; Docker test unrun)
 
 - Define in `internal/exec` (or similar):
   `type Executor interface { Run(ctx context.Context, s StepRun, logs io.Writer) (Result, error) }`.
