@@ -136,13 +136,17 @@ design note.
 - Done: `docs/design/003-control-plane.md`. Still open there: upload format and size limits,
   retention. The GitHub credential for M2 is a fine-grained token; a GitHub App comes later.
 
-### Step 8: run store (not started)
+### Step 8: run store (done)
 
 - Add `internal/store` with a `Store` interface for runs, step results and log chunks, plus an
   in-memory implementation used by tests and a Postgres implementation.
 - Migrations are embedded SQL applied in order and recorded in a schema table.
 - Acceptance: one shared test suite runs against both implementations. The Postgres run is
   gated on an environment variable so `make ci` passes without a database; CI sets it up.
+- Done: `internal/store` (Memory, Postgres, embedded migration `0001_init.sql`). The shared suite
+  passed against a real local Postgres 16 with `-race`; CI is configured to run it against
+  Postgres 18 but that CI run has not been seen yet. Postgres tests use
+  `FORGELINE_TEST_DATABASE_URL`.
 
 ### Step 9: server, REST API and embedded runner (not started)
 

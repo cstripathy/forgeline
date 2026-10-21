@@ -32,6 +32,9 @@ what to do next**. The project is pre-alpha and maintained by one person.
 - Go 1.27. Run `gofmt` and `go vet`. Table-driven tests. Error messages say what is wrong and
   where (for example `steps[2].needs[0]: unknown step "x"`).
 - Small commits with a message that explains why. Keep `docs/ROADMAP.md` statuses accurate.
+- Versions: research the current stable release before choosing one (Go, dependencies, base
+  images) and use it. If the latest forces a wider change, say so and ask; never silently pin
+  an older one.
 - Dependencies: keep them few. Each new one needs an Apache-2.0-compatible license (MIT, BSD,
   Apache-2.0, MPL-2.0 are fine; no GPL or AGPL) and a one-line reason in the commit message.
 - GitHub Actions: pin every third-party action to a full commit SHA, never a tag. Keep
