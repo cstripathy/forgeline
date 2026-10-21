@@ -25,6 +25,8 @@ Open this repository in Claude Code and paste:
 - M1 step 4: done, except the real-container test has not run here (no Docker daemon in the
   dev sandbox). `internal/executor` has the `Executor` interface, `Docker` and `Fake`;
   `internal/scheduler` runs a graph with bounded parallelism and skips dependents of failures.
+- M1 step 5: done. `docs/design/002-spec-extensions.md` defines `inputs`, the cache key, and
+  reserved `permissions`. Only `steps[].inputs` is in the types, schema and validation.
 - Everything else is not started.
 
 ## Decisions already made
@@ -81,7 +83,7 @@ steps whose inputs have not changed.
   timeout, cancellation, and parallelism limits. One test marked to skip when Docker is absent
   runs a real container.
 
-### Step 5: design note 002, spec extensions (not started)
+### Step 5: design note 002, spec extensions (done)
 
 Do this before step 6, because caching needs declared inputs and the trust model needs
 permission fields in the spec.

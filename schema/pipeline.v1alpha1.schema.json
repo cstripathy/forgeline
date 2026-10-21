@@ -40,6 +40,13 @@
           "minLength": 1,
           "type": "string"
         },
+        "inputs": {
+          "description": "Workspace-relative file globs that make up the step's cache key. A step without inputs is never cached.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "needs": {
           "description": "IDs of steps that must succeed before this one starts.",
           "items": {

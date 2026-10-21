@@ -29,4 +29,5 @@ type Step struct {
 	Env     map[string]string `json:"env,omitempty" doc:"Environment variables for the step. Names must be valid identifiers."`
 	WorkDir string            `json:"workdir,omitempty" doc:"Absolute working directory inside the container." pattern:"^/"`
 	Timeout string            `json:"timeout,omitempty" doc:"Maximum run time as a duration such as 30s or 10m. Must be positive."`
+	Inputs  []string          `json:"inputs,omitempty" doc:"Workspace-relative file globs that make up the step's cache key. A step without inputs is never cached."`
 }
