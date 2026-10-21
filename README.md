@@ -93,9 +93,10 @@ browser tab only.
 token can run containers on the host, so keep the default loopback address or put the server
 behind TLS and a network you trust. Server runs do not use the step cache.
 
-Status: the cache logic, scheduler and CLI are covered by tests that use a fake executor. The
-Docker path has not been run end to end in the environment this was written in (no Docker
-daemon), so treat it as unverified until you have run the example once.
+Status: run on real Docker on 2026-10-21 (Amazon Linux 2023 on arm64, Docker, Alpine 3.24): the
+example ran, a second run was served from cache, and changing `src/a.txt` re-ran only `shout-a`
+and `combine`. The same example also passed through `forgeline server`. Not tried on macOS,
+Windows, x86, Podman, or a rootless Docker setup.
 
 ## License
 

@@ -4,14 +4,14 @@ Each milestone has exit criteria. A milestone is done only when its criteria are
 demonstrated, not when the code exists. The order puts the trust model early because it is
 the project's differentiator.
 
-M1 progress: steps 1 (model, JSON Schema, validation), 2 (YAML loader), 3 (DAG planner), 4 (executor, scheduler), 5 (spec extensions note) and 6 (`forgeline run` with caching) are done in code. The Docker path is untested end to end. The remaining steps, with
+M1 progress: steps 1 (model, JSON Schema, validation), 2 (YAML loader), 3 (DAG planner), 4 (executor, scheduler), 5 (spec extensions note) and 6 (`forgeline run` with caching) are done in code. The example was verified on real Docker. The remaining steps, with
 acceptance criteria, are in [PLAN.md](PLAN.md).
 
 | # | Milestone | Exit criteria | Status |
 | --- | --- | --- | --- |
 | M0 | Foundation | Public repo, Apache-2.0 license, README, roadmap, architecture notes, Go skeleton that builds and tests locally | Done |
-| M1 | Pipeline spec and local engine | Typed pipeline schema; YAML loader; DAG executor running container steps; `forgeline run` executes a sample pipeline on a laptop with caching of unchanged steps | Done in code; awaiting a real Docker run |
-| M2 | Control plane and UI | Single-binary server with Postgres; run history and live logs; GitHub webhook trigger with commit status; a DAG run view in the UI | Not started |
+| M1 | Pipeline spec and local engine | Typed pipeline schema; YAML loader; DAG executor running container steps; `forgeline run` executes a sample pipeline on a laptop with caching of unchanged steps | Done |
+| M2 | Control plane and UI | Single-binary server with Postgres; run history and live logs; GitHub webhook trigger with commit status; a DAG run view in the UI | In progress |
 | M3 | Trust and sandbox model | Per-step declared permissions; secrets scoped to steps; untrusted input isolated from secrets; audit log; a published threat model with tests that try to break it | Not started |
 | M4 | Security gates | Scanner orchestration; findings normalized from SARIF; policy gates with expiring waivers; SBOM and image signing | Not started |
 | M5 | Progressive delivery | One declaration for canary and blue-green on Kubernetes with metric-driven rollback | Not started |

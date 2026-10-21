@@ -27,8 +27,14 @@ Open this repository in Claude Code and paste:
   `internal/scheduler` runs a graph with bounded parallelism and skips dependents of failures.
 - M1 step 5: done. `docs/design/002-spec-extensions.md` defines `inputs`, the cache key, and
   reserved `permissions`. Only `steps[].inputs` is in the types, schema and validation.
-- M1 step 6: done in code and tests with a fake executor. NOT yet run against real Docker:
-  run `examples/hello` twice on a machine with Docker before treating M1 as proven.
+- M1 step 6: done and verified on real Docker (see the verification note below). M1 is done.
+- Real Docker verification, 2026-10-21, on an `t4g.small` (arm64, Amazon Linux 2023, Docker, Alpine 3.24)
+  in ap-south-1: `forgeline run examples/hello` ran 3 steps, a second run was 3x cached, and
+  changing `src/a.txt` ran `shout-a` and `combine` and kept `shout-b` cached. The same example
+  succeeded through `forgeline server` backed by Postgres 18 in a container, with uploaded
+  source files used by the steps. Not yet covered: the unit test that needs Docker was not
+  run in CI, cancel and timeout against real containers, a failing step against real
+  containers, and any platform other than arm64 Linux.
 - Everything else is not started.
 
 ## Decisions already made
@@ -71,7 +77,7 @@ steps whose inputs have not changed.
 - Acceptance: tests for a linear chain, a diamond, independent steps, a cycle, a self-cycle
   caught earlier by `Validate`, and a forward reference.
 
-### Step 4: executor and scheduler (done; Docker test unrun)
+### Step 4: executor and scheduler (done; verified on real Docker)
 
 - Define in `internal/exec` (or similar):
   `type Executor interface { Run(ctx context.Context, s StepRun, logs io.Writer) (Result, error) }`.
@@ -99,7 +105,7 @@ permission fields in the spec.
 - Add only the fields step 6 needs to the types, with schema regeneration and validation tests.
 - Acceptance: the note states what is implemented now versus reserved.
 
-### Step 6: `forgeline run` with caching (done; real Docker run unverified)
+### Step 6: `forgeline run` with caching (done; verified on real Docker)
 
 - `forgeline run <file>` loads, validates, plans, and runs. Print one status line per step
   (ran, cached, failed, skipped). Exit non-zero on any failure.
@@ -148,7 +154,7 @@ design note.
   Postgres 18 but that CI run has not been seen yet. Postgres tests use
   `FORGELINE_TEST_DATABASE_URL`.
 
-### Step 9: server, REST API and embedded runner (done; Docker path unrun)
+### Step 9: server, REST API and embedded runner (done; verified on real Docker)
 
 - `forgeline server --listen :8080 --database-url ...` serves: submit a run (pipeline YAML
   plus a source directory or checkout reference), list runs, get a run with step states, get a
@@ -205,13 +211,20 @@ design note.
   (it needs Node and Playwright); the dev server used was deleted. Not checked: dark mode
   visually, screen readers, browsers other than Chromium, real Docker output.
 
-### Step 13: hosted demo on AWS (not started)
+### Step 13: hosted demo on AWS (done; running now, see deploy/aws/README.md)
 
 - Needs a decision from the maintainer first: account, region, budget, and public or private.
 - Smallest viable shape: one container image of the server, a small managed Postgres, TLS, and
   an auth token. Infrastructure as code in the repository; no credentials in it.
 - Acceptance: a documented, repeatable deploy and teardown, with the monthly cost estimated
   from current AWS pricing and checked against the budget before anything is created.
+- Done: `deploy/aws/forgeline-demo.yaml` and `deploy/aws/README.md`. Decisions from the
+  maintainer: ap-south-1, about $15/month, reachable only through SSM port forwarding. Price
+  check (AWS Pricing API): t4g.small $0.0112/h, gp3 $0.0912/GB-month, public IPv4 $0.005/h,
+  about $13.7/month. Stack `forgeline-demo` in account 181286537717 created and verified
+  (service active, health ok, real runs). The repeatable teardown is documented but was not
+  exercised yet, so the first real delete is the test of it. The browser UI has not been
+  checked through the tunnel on this deployment.
 
 When step 13 is done, mark M2 done in `docs/ROADMAP.md`.
 
