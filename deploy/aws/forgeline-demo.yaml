@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Forgeline demo: one small private EC2 instance running the Forgeline server and a Postgres
+  container. No inbound ports; reach it through SSM Session Manager port forwarding. Delete the
+  stack to remove everything it created. See deploy/aws/README.md.
+
+Parameters:
+  GitRef:
+    Type: String
+    Description: Full commit SHA of github.com/cstripathy/forgeline to build and run.
+    AllowedPattern: "^[0-9a-f]{40}$"
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: A subnet in that VPC that assigns public IPv4 addresses (needed for outbound access).
+  InstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedValues: [t4g.small, t4g.medium]
+    Description: Must be Graviton (arm64); the Go build below targets linux-arm64.
+  GoVersion:
+    Type: String
+    Default: "1.27.3"
+    AllowedPattern: "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+  TokenParameterName:
+    Type: String
+    Default: /forgeline-demo/token
+    Description: SSM SecureString holding the bearer token. Create it before the stack; it is not stored here.
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+
+Resources:
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: read-forgeline-token
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TokenParameterName}"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Forgeline demo. No inbound rules; outbound only.
+      VpcId: !Ref VpcId
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref SecurityGroup]
+      IamInstanceProfile: !Ref InstanceProfile
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeSize: 20, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+      Tags:
+        - { Key: Name, Value: forgeline-demo }
+        - { Key: Project, Value: forgeline-demo }
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          exec > >(tee -a /var/log/forgeline-bootstrap.log) 2>&1
+
+          dnf install -y docker git tar gzip
+          systemctl enable --now docker
+
+          # Go toolchain, checked against the checksum go.dev publishes.
+          curl -fsSL https://go.dev/dl/go${GoVersion}.linux-arm64.tar.gz -o /tmp/go.tgz
+          WANT=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' | python3 -c "import json,sys; f='go${GoVersion}.linux-arm64.tar.gz'; print([x['sha256'] for r in json.load(sys.stdin) for x in r['files'] if x['filename']==f][0])")
+          echo "$WANT  /tmp/go.tgz" | sha256sum -c -
+          tar -C /usr/local -xzf /tmp/go.tgz
+
+          # Build the pinned commit.
+          git clone https://github.com/cstripathy/forgeline /opt/forgeline-src
+          git -C /opt/forgeline-src checkout ${GitRef}
+          cd /opt/forgeline-src
+          HOME=/root GOCACHE=/tmp/gocache GOPATH=/tmp/gopath /usr/local/go/bin/go build -o /usr/local/bin/forgeline ./cmd/forgeline
+
+          useradd --system --create-home --home-dir /var/lib/forgeline forgeline
+          usermod -aG docker forgeline
+          mkdir -p /var/lib/forgeline/data /var/lib/forgeline/pg /etc/forgeline
+          chown -R forgeline:forgeline /var/lib/forgeline/data
+
+          # Postgres 18 in a container, bound to loopback only.
+          PGPASS=$(openssl rand -hex 16)
+          docker run -d --name forgeline-pg --restart unless-stopped \
+            -e POSTGRES_PASSWORD=$PGPASS -e POSTGRES_DB=forgeline \
+            -v /var/lib/forgeline/pg:/var/lib/postgresql -p 127.0.0.1:5432:5432 postgres:18
+          for i in $(seq 1 60); do docker exec forgeline-pg pg_isready -U postgres -d forgeline && break; sleep 2; done
+          docker pull alpine:3.24
+
+          TOKEN=$(aws ssm get-parameter --region ${AWS::Region} --name ${TokenParameterName} --with-decryption --query Parameter.Value --output text)
+          umask 077
+          printf 'FORGELINE_TOKEN=%s\nFORGELINE_DATABASE_URL=postgres://postgres:%s@127.0.0.1:5432/forgeline?sslmode=disable\n' "$TOKEN" "$PGPASS" > /etc/forgeline/env
+          unset TOKEN
+          umask 022
+
+          cat > /etc/systemd/system/forgeline.service <<'UNIT'
+          [Unit]
+          Description=Forgeline server
+          After=docker.service network-online.target
+          Requires=docker.service
+
+          [Service]
+          User=forgeline
+          EnvironmentFile=/etc/forgeline/env
+          ExecStart=/usr/local/bin/forgeline server --listen 127.0.0.1:8080 --data-dir /var/lib/forgeline/data
+          Restart=on-failure
+          RestartSec=3
+          NoNewPrivileges=true
+          ProtectSystem=strict
+          ReadWritePaths=/var/lib/forgeline
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          systemctl daemon-reload
+          systemctl enable --now forgeline
+          echo "forgeline bootstrap finished"
+
+Outputs:
+  InstanceId:
+    Value: !Ref Instance
+  TunnelCommand:
+    Description: Run on your own machine (needs the AWS CLI and the Session Manager plugin), then open http://127.0.0.1:8080/
+    Value: !Sub "aws ssm start-session --region ${AWS::Region} --target ${Instance} --document-name AWS-StartPortForwardingSession --parameters portNumber=8080,localPortNumber=8080"
+  TokenCommand:
+    Description: Prints the bearer token for the sign-in page.
+    Value: !Sub "aws ssm get-parameter --region ${AWS::Region} --name ${TokenParameterName} --with-decryption --query Parameter.Value --output text"
