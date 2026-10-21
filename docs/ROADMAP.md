@@ -17,8 +17,8 @@ the project's differentiator.
 
 ## Open decisions
 
-- Whether to build on, or interoperate with, an existing engine for step execution
-  instead of writing one. Evaluate before starting M1.
+- Step execution engine. Proposed: write a minimal executor behind an interface and treat
+  Dagger as an interoperable step type. See [design/001](design/001-execution-engine.md).
 - Workflow state: a Postgres-backed executor to start, with the engine kept swappable.
 - Policy language for gates (candidates: OPA, CEL). Not yet researched.
 - Plugin model beyond container steps. WASM components are a candidate for small policy hooks.
