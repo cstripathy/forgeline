@@ -72,6 +72,25 @@ See [design note 002](docs/design/002-spec-extensions.md) for the exact key and 
 Containers run as the image's default user, so on Linux files they create (`out/`) may be
 owned by root.
 
+## Run the server (pre-alpha)
+
+```
+export FORGELINE_TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '/+=')   # 16+ characters
+export FORGELINE_DATABASE_URL=postgres://...   # optional; without it runs live in memory
+./bin/forgeline server                           # listens on http://127.0.0.1:8080
+
+# in another terminal, with the same FORGELINE_TOKEN:
+./bin/forgeline submit --server http://127.0.0.1:8080 --wait examples/hello/pipeline.yaml
+```
+
+The API is in [design note 003](docs/design/003-control-plane.md): `POST /v1/runs`,
+`GET /v1/runs`, `GET /v1/runs/{id}`, `POST /v1/runs/{id}/cancel`,
+`GET /v1/runs/{id}/steps/{step}/logs`. There is no web page yet; that is milestone M2 step 12.
+
+**Warning:** there is no sandbox beyond container defaults until milestone M3. Anyone with the
+token can run containers on the host, so keep the default loopback address or put the server
+behind TLS and a network you trust. Server runs do not use the step cache.
+
 Status: the cache logic, scheduler and CLI are covered by tests that use a fake executor. The
 Docker path has not been run end to end in the environment this was written in (no Docker
 daemon), so treat it as unverified until you have run the example once.

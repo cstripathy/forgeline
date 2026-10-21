@@ -145,3 +145,10 @@ func (w *prefixWriter) Write(p []byte) (int, error) {
 	}
 	return len(p), nil
 }
+
+// printBlock writes a finished log with the step prefix on every line.
+func (l *prefixLogs) printBlock(id, text string) {
+	w := l.writer(id)
+	io.WriteString(w, text)
+	l.flush()
+}

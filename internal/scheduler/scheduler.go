@@ -63,6 +63,12 @@ type Options struct {
 	// own writer, but steps run concurrently, so a shared underlying writer must be safe
 	// for concurrent use.
 	Logs func(stepID string) io.Writer
+	// OnStepStart, if set, is called just before a step is handed to the executor.
+	OnStepStart func(stepID string)
+	// OnStepDone, if set, is called once for every step with its final result, including
+	// skipped and canceled steps. Both callbacks run on scheduler goroutines, possibly
+	// concurrently, so they must be safe for concurrent use.
+	OnStepDone func(StepResult)
 }
 
 // Run executes the graph layer by layer. When a step fails, every step that needs it,
@@ -82,9 +88,15 @@ func Run(ctx context.Context, g *pipeline.Graph, ex executor.Executor, opts Opti
 		var wg sync.WaitGroup
 
 		for i, step := range layer {
+			finish := func(r StepResult) {
+				results[i] = r
+				if opts.OnStepDone != nil {
+					opts.OnStepDone(r)
+				}
+			}
 			if blocker := blockedBy(step, status); blocker != "" {
-				results[i] = StepResult{ID: step.ID, Status: StatusSkipped,
-					Err: fmt.Errorf("needs %q, which did not succeed", blocker)}
+				finish(StepResult{ID: step.ID, Status: StatusSkipped,
+					Err: fmt.Errorf("needs %q, which did not succeed", blocker)})
 				continue
 			}
 			wg.Add(1)
@@ -94,10 +106,10 @@ func Run(ctx context.Context, g *pipeline.Graph, ex executor.Executor, opts Opti
 				case sem <- struct{}{}:
 					defer func() { <-sem }()
 				case <-ctx.Done():
-					results[i] = StepResult{ID: step.ID, Status: StatusCanceled, Err: ctx.Err()}
+					finish(StepResult{ID: step.ID, Status: StatusCanceled, Err: ctx.Err()})
 					return
 				}
-				results[i] = runStep(ctx, step, ex, opts)
+				finish(runStep(ctx, step, ex, opts))
 			}()
 		}
 		wg.Wait()
@@ -133,6 +145,9 @@ func runStep(ctx context.Context, s *pipeline.Step, ex executor.Executor, opts O
 		logs = opts.Logs(s.ID)
 	}
 
+	if opts.OnStepStart != nil {
+		opts.OnStepStart(s.ID)
+	}
 	start := time.Now()
 	res, err := ex.Run(ctx, run, logs)
 	out := StepResult{ID: s.ID, ExitCode: res.ExitCode, Duration: time.Since(start)}

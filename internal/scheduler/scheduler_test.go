@@ -194,3 +194,36 @@ func TestRunCachedCountsAsSuccess(t *testing.T) {
 		t.Fatalf("a cached step should count as success: %v", r.Err())
 	}
 }
+
+func TestRunCallbacks(t *testing.T) {
+	// a fails, b needs a (skipped), c is independent.
+	g := plan(t, st("a"), st("b", "a"), st("c"))
+	var mu sync.Mutex
+	started := map[string]bool{}
+	done := map[string]Status{}
+	opts := Options{
+		Parallelism: 2,
+		OnStepStart: func(id string) { mu.Lock(); started[id] = true; mu.Unlock() },
+		OnStepDone: func(r StepResult) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !started[r.ID] && r.Status != StatusSkipped {
+				t.Errorf("%s finished (%s) without a start callback", r.ID, r.Status)
+			}
+			if _, dup := done[r.ID]; dup {
+				t.Errorf("%s reported done twice", r.ID)
+			}
+			done[r.ID] = r.Status
+		},
+	}
+	Run(context.Background(), g, failing("a"), opts)
+	want := map[string]Status{"a": StatusFailed, "b": StatusSkipped, "c": StatusSucceeded}
+	for id, w := range want {
+		if done[id] != w {
+			t.Errorf("done[%s] = %s, want %s", id, done[id], w)
+		}
+	}
+	if started["b"] {
+		t.Error("skipped step b got a start callback")
+	}
+}

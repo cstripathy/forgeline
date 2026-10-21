@@ -148,7 +148,7 @@ design note.
   Postgres 18 but that CI run has not been seen yet. Postgres tests use
   `FORGELINE_TEST_DATABASE_URL`.
 
-### Step 9: server, REST API and embedded runner (not started)
+### Step 9: server, REST API and embedded runner (done; Docker path unrun)
 
 - `forgeline server --listen :8080 --database-url ...` serves: submit a run (pipeline YAML
   plus a source directory or checkout reference), list runs, get a run with step states, get a
@@ -159,6 +159,10 @@ design note.
   with a clear reason instead of leaving them running.
 - Acceptance: handler tests with the fake executor cover submit, status transitions, failure,
   cancel, auth rejection, and restart recovery. `forgeline submit <file> --server URL` works.
+- Done: `internal/server`, `internal/client`, `forgeline server` and `forgeline submit`. Tests
+  cover all of the above plus hostile source archives and oversized uploads. The built binary
+  was also exercised against a real local Postgres 16 (auth, persistence, failure reporting).
+  Not run: a real Docker-backed run through the server (no Docker daemon in the dev sandbox).
 
 ### Step 10: live logs (not started)
 

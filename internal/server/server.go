@@ -1,0 +1,144 @@
+// Package server is the Forgeline control plane: an HTTP API over a Store, plus an embedded
+// runner that executes queued runs. See docs/design/003-control-plane.md.
+//
+// M2 has no sandbox beyond container defaults and one shared bearer token. Anyone holding the
+// token can run arbitrary containers on the host, so do not expose the server to people you
+// would not give a shell.
+package server
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/cstripathy/forgeline/internal/executor"
+	"github.com/cstripathy/forgeline/internal/store"
+)
+
+// MinTokenLength is the shortest bearer token the server accepts.
+const MinTokenLength = 16
+
+// Config configures a Server. Store, Executor, Token and DataDir are required.
+type Config struct {
+	Store    store.Store
+	Executor executor.Executor
+	// Token is the bearer token clients must send.
+	Token string
+	// DataDir holds per-run workspaces under runs/ and upload scratch space under tmp/.
+	DataDir string
+	// MaxRuns is how many runs execute at once. Zero means 2.
+	MaxRuns int
+	// Parallelism is how many steps of one run execute at once. Zero means 4.
+	Parallelism int
+	// MaxSourceBytes caps an uploaded source archive, compressed and unpacked. Zero means 64 MiB.
+	MaxSourceBytes int64
+	// MaxLogBytes caps the stored log of one step. Zero means 10 MiB.
+	MaxLogBytes int64
+	Logger      *slog.Logger
+}
+
+// Server serves the API and runs queued pipelines.
+type Server struct {
+	cfg Config
+	log *slog.Logger
+
+	wake chan struct{}
+
+	mu            sync.Mutex
+	ctls          map[string]*runCtl
+	pendingCancel map[string]bool
+
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+}
+
+// New validates cfg, prepares the data directory and returns a Server. Call Start to begin
+// executing runs, and Handler to serve the API.
+func New(cfg Config) (*Server, error) {
+	switch {
+	case cfg.Store == nil:
+		return nil, errors.New("server: Store is required")
+	case cfg.Executor == nil:
+		return nil, errors.New("server: Executor is required")
+	case len(cfg.Token) < MinTokenLength:
+		return nil, fmt.Errorf("server: token must be at least %d characters", MinTokenLength)
+	case cfg.DataDir == "":
+		return nil, errors.New("server: DataDir is required")
+	}
+	if cfg.MaxRuns <= 0 {
+		cfg.MaxRuns = 2
+	}
+	if cfg.Parallelism <= 0 {
+		cfg.Parallelism = 4
+	}
+	if cfg.MaxSourceBytes <= 0 {
+		cfg.MaxSourceBytes = 64 << 20
+	}
+	if cfg.MaxLogBytes <= 0 {
+		cfg.MaxLogBytes = 10 << 20
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.Default()
+	}
+	abs, err := filepath.Abs(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	cfg.DataDir = abs
+	for _, d := range []string{"runs", "tmp"} {
+		if err := os.MkdirAll(filepath.Join(cfg.DataDir, d), 0o755); err != nil {
+			return nil, fmt.Errorf("server: preparing data dir: %w", err)
+		}
+	}
+	return &Server{
+		cfg: cfg, log: cfg.Logger,
+		wake:          make(chan struct{}, cfg.MaxRuns),
+		ctls:          map[string]*runCtl{},
+		pendingCancel: map[string]bool{},
+	}, nil
+}
+
+// Start marks runs interrupted by a previous crash as failed, then starts the workers. It
+// returns once the workers are running. Stop waits for them.
+func (s *Server) Start(ctx context.Context) error {
+	n, err := s.cfg.Store.FailInterruptedRuns(ctx, "server restarted")
+	if err != nil {
+		return fmt.Errorf("recovering interrupted runs: %w", err)
+	}
+	if n > 0 {
+		s.log.Warn("marked interrupted runs failed", "count", n)
+	}
+	ctx, s.cancel = context.WithCancel(ctx)
+	for i := 0; i < s.cfg.MaxRuns; i++ {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.worker(ctx)
+		}()
+	}
+	return nil
+}
+
+// Stop cancels running work and waits for the workers to finish recording results.
+func (s *Server) Stop() {
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.wg.Wait()
+}
+
+// HTTPServer returns an http.Server with conservative timeouts for the given address.
+func (s *Server) HTTPServer(addr string) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+}

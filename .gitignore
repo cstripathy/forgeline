@@ -11,3 +11,4 @@ dist/
 # Local pipeline state and example output
 .forgeline/
 examples/*/out/
+forgeline-data/

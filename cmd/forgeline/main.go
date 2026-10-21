@@ -20,6 +20,9 @@ Usage:
   forgeline schema     print the pipeline JSON Schema
   forgeline run [--parallel N] [--no-cache] <pipeline.yaml>
                        run a pipeline in Docker, skipping steps whose inputs are unchanged
+  forgeline server     start the control plane (REST API and runner); see "forgeline server -h"
+  forgeline submit [--server URL] [--wait] <pipeline.yaml>
+                       send a pipeline to a server
   forgeline help       show this message
 `
 
@@ -52,6 +55,14 @@ func runWith(args []string, stdout, stderr io.Writer, ex executor.Executor) int 
 		return 0
 	case "run":
 		return runPipeline(args[1:], stdout, stderr, ex)
+	case "server":
+		ctx, stop := signalContext()
+		defer stop()
+		return runServer(ctx, args[1:], stdout, stderr, ex, os.Getenv)
+	case "submit":
+		ctx, stop := signalContext()
+		defer stop()
+		return runSubmit(ctx, args[1:], stdout, stderr, os.Getenv)
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return 0

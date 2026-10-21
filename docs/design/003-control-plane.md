@@ -83,10 +83,28 @@ Cancel cancels the run's context, which already stops containers. The server lim
 runs (config, default 2) and the pipeline's own parallelism (default 4). Log chunks are capped
 per step (default 10 MiB) with a visible truncation marker, so one step cannot fill the disk.
 
+## Decided while building step 9
+
+- **Submission format:** `multipart/form-data` with a `pipeline` field (YAML, at most 1 MiB) and
+  an optional `source` file, a gzip tar of the workspace. Default limit 64 MiB, compressed and
+  unpacked, configurable.
+- **Archive extraction is strict** because the archive is untrusted: only regular files and
+  directories, relative names that stay inside the workspace, permissions normalised (setuid
+  and similar dropped), no repeated names, bounded entry count and size. The archive is
+  unpacked into scratch space before a run exists, so a bad archive creates no run.
+- **No step cache in the server.** Each run gets a fresh workspace, so a cached step would be
+  skipped without its output files existing for later steps. The cache only works where the
+  workspace persists, as in `forgeline run`. Revisit with artifact storage.
+- **Secrets stay out of argv.** The token and database URL come from `FORGELINE_TOKEN` and
+  `FORGELINE_DATABASE_URL`, not flags. Tokens shorter than 16 characters are refused.
+- **Without `FORGELINE_DATABASE_URL`** the server keeps runs in memory and says so. That is for
+  trying it out, not for keeping history.
+- **Default listen address is loopback.** The server speaks plain HTTP; TLS comes from a proxy.
+
 ## What is not decided
 
-- Source archive upload size limits and format (tar.gz is the candidate).
 - Retention: how long runs and logs are kept. M2 keeps everything.
+- Workspace cleanup: run workspaces under the data dir are kept until retention is decided.
 - How a hosted demo is protected from abuse beyond the bearer token; that belongs to step 13.
 
 ## What this note changes in the code
