@@ -90,7 +90,7 @@ func TestDockerRunsRealContainer(t *testing.T) {
 	dockerOrSkip(t)
 	image := os.Getenv("FORGELINE_DOCKER_TEST_IMAGE")
 	if image == "" {
-		image = "alpine:3.20"
+		image = "alpine:3.24"
 	}
 	ws := t.TempDir()
 	var logs bytes.Buffer

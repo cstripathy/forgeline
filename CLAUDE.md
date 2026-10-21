@@ -29,7 +29,7 @@ what to do next**. The project is pre-alpha and maintained by one person.
 
 ## Conventions
 
-- Go 1.24. Run `gofmt` and `go vet`. Table-driven tests. Error messages say what is wrong and
+- Go 1.27. Run `gofmt` and `go vet`. Table-driven tests. Error messages say what is wrong and
   where (for example `steps[2].needs[0]: unknown step "x"`).
 - Small commits with a message that explains why. Keep `docs/ROADMAP.md` statuses accurate.
 - Dependencies: keep them few. Each new one needs an Apache-2.0-compatible license (MIT, BSD,

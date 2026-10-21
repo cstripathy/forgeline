@@ -11,8 +11,8 @@ func validPipeline() Pipeline {
 		Version: VersionV1Alpha1,
 		Name:    "demo",
 		Steps: []Step{
-			{ID: "build", Image: "golang:1.24", Run: "go build ./..."},
-			{ID: "test", Image: "golang:1.24", Command: []string{"go", "test", "./..."}, Needs: []string{"build"}},
+			{ID: "build", Image: "golang:1.27", Run: "go build ./..."},
+			{ID: "test", Image: "golang:1.27", Command: []string{"go", "test", "./..."}, Needs: []string{"build"}},
 		},
 	}
 }

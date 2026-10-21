@@ -2,9 +2,9 @@ version: v1alpha1
 name: Demo
 steps:
   - id: build
-    image: golang:1.24
+    image: golang:1.27
   - id: test
-    image: golang:1.24
+    image: golang:1.27
     run: go test
     needs: [missing]
     timeout: soon

@@ -14,7 +14,7 @@ reserved so later milestones do not break the format?
 ```yaml
 steps:
   - id: test
-    image: golang:1.24
+    image: golang:1.27
     run: go test ./...
     inputs: ["go.mod", "**/*.go"]
 ```
@@ -47,7 +47,7 @@ cached when the stored record for its key records a success.
 
 Known limits, stated rather than hidden:
 
-- Image tags are mutable. `golang:1.24` can change under the same key. Resolving to a
+- Image tags are mutable. `golang:1.27` can change under the same key. Resolving to a
   digest is deferred; pin a digest in `image` to get exact behaviour.
 - File mode and symlink targets are not hashed in M1. Only paths and contents are.
 - Anything a step reads outside its declared `inputs` (network, files in the image, time)

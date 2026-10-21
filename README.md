@@ -50,7 +50,7 @@ The schema is generated from the Go types in `internal/pipeline` and committed a
 `schema/pipeline.v1alpha1.schema.json`. After changing the types, regenerate it with
 `go test ./internal/pipeline -run TestSchemaMatchesCommittedFile -update`.
 
-Requires Go 1.24 or newer.
+Requires Go 1.27 or newer.
 
 ## Try the example
 
