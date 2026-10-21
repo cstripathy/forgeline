@@ -1,0 +1,105 @@
+{
+  "$defs": {
+    "Step": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "run"
+          ]
+        },
+        {
+          "required": [
+            "command"
+          ]
+        }
+      ],
+      "properties": {
+        "command": {
+          "description": "Command and arguments, run without a shell. Set this or run, not both.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Environment variables for the step. Names must be valid identifiers.",
+          "type": "object"
+        },
+        "id": {
+          "description": "Unique step identifier: lowercase letters, digits and hyphens.",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$",
+          "type": "string"
+        },
+        "image": {
+          "description": "Container image the step runs in.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "needs": {
+          "description": "IDs of steps that must succeed before this one starts.",
+          "items": {
+            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "run": {
+          "description": "Shell script to run. Set this or command, not both.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "timeout": {
+          "description": "Maximum run time as a duration such as 30s or 10m. Must be positive.",
+          "type": "string"
+        },
+        "workdir": {
+          "description": "Absolute working directory inside the container.",
+          "pattern": "^/",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "image"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A Forgeline pipeline, spec version v1alpha1.",
+  "properties": {
+    "name": {
+      "description": "Pipeline name: lowercase letters, digits and hyphens.",
+      "pattern": "^[a-z][a-z0-9-]{0,62}$",
+      "type": "string"
+    },
+    "steps": {
+      "description": "The steps to run. At least one is required.",
+      "items": {
+        "$ref": "#/$defs/Step"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "version": {
+      "description": "Spec version. Must be v1alpha1.",
+      "enum": [
+        "v1alpha1"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "name",
+    "steps"
+  ],
+  "title": "Forgeline pipeline",
+  "type": "object"
+}

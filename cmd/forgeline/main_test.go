@@ -16,6 +16,7 @@ func TestRun(t *testing.T) {
 	}{
 		{"version", []string{"version"}, 0, "forgeline ", ""},
 		{"help", []string{"help"}, 0, "Usage:", ""},
+		{"schema", []string{"schema"}, 0, `"$schema"`, ""},
 		{"no args", nil, 2, "", "Usage:"},
 		{"unknown", []string{"bogus"}, 2, "", "unknown command"},
 	}

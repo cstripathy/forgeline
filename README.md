@@ -43,7 +43,12 @@ Research done in October 2026 pointed to four gaps:
 make build   # builds ./bin/forgeline
 make test
 ./bin/forgeline version
+./bin/forgeline schema   # prints the pipeline JSON Schema
 ```
+
+The schema is generated from the Go types in `internal/pipeline` and committed at
+`schema/pipeline.v1alpha1.schema.json`. After changing the types, regenerate it with
+`go test ./internal/pipeline -run TestSchemaMatchesCommittedFile -update`.
 
 Requires Go 1.24 or newer.
 

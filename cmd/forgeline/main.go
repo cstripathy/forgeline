@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/cstripathy/forgeline/internal/pipeline"
 	"github.com/cstripathy/forgeline/internal/version"
 )
 
@@ -15,6 +16,7 @@ Status: pre-alpha. Only the commands below exist.
 
 Usage:
   forgeline version    print the version
+  forgeline schema     print the pipeline JSON Schema
   forgeline help       show this message
 `
 
@@ -31,6 +33,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "version", "--version":
 		fmt.Fprintln(stdout, version.String())
+		return 0
+	case "schema":
+		out, err := pipeline.Schema()
+		if err != nil {
+			fmt.Fprintf(stderr, "forgeline: generating schema: %v\n", err)
+			return 1
+		}
+		stdout.Write(out)
 		return 0
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
