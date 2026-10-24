@@ -12,3 +12,4 @@ dist/
 .forgeline/
 examples/*/out/
 forgeline-data/
+.forgeline-server/

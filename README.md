@@ -72,6 +72,29 @@ See [design note 002](docs/design/002-spec-extensions.md) for the exact key and 
 Containers run as the image's default user, so on Linux files they create (`out/`) may be
 owned by root.
 
+## Run everything on your laptop
+
+You need Go 1.27+ and Docker. No cloud account, no database, no other setup.
+
+```
+make run-local     # builds, then starts the server on 127.0.0.1:8080 with in-memory history
+```
+
+It prints a link like `http://127.0.0.1:8080/#token=...`. Open it and you are signed in; the token
+in the link is generated for that run only and is removed from the address bar. Then, in another
+terminal, with the `export` line it printed:
+
+```
+./bin/forgeline submit --wait examples/hello/pipeline.yaml
+```
+
+Or skip the server entirely: `./bin/forgeline run examples/hello/pipeline.yaml` runs a pipeline
+straight from the command line, with step caching.
+
+To keep history across restarts, set `FORGELINE_DATABASE_URL=postgres://...` (and a fixed
+`FORGELINE_TOKEN` of at least 16 characters, which is mandatory for any address other than
+loopback). A throwaway Postgres: `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=dev postgres:18`.
+
 ## Run the server (pre-alpha)
 
 ```

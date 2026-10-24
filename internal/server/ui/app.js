@@ -99,7 +99,16 @@ function handleError(err) {
 
 signoutBtn.addEventListener("click", () => {
   sessionStorage.removeItem(TOKEN_KEY);
-  route();
+  // A link such as /#token=... (printed by a local `forgeline server` that generated its own
+// token) signs in once. The fragment is never sent to the server, and it is removed from the
+// address bar and history entry straight away.
+const fromLink = location.hash.match(/^#token=([A-Za-z0-9_-]+)$/);
+if (fromLink) {
+  sessionStorage.setItem(TOKEN_KEY, fromLink[1]);
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
+route();
 });
 window.addEventListener("hashchange", route);
 
@@ -122,7 +131,16 @@ function showLogin(message) {
     sessionStorage.setItem(TOKEN_KEY, input.value.trim());
     try {
       await apiJSON("/v1/runs?limit=1");
-      route();
+      // A link such as /#token=... (printed by a local `forgeline server` that generated its own
+// token) signs in once. The fragment is never sent to the server, and it is removed from the
+// address bar and history entry straight away.
+const fromLink = location.hash.match(/^#token=([A-Za-z0-9_-]+)$/);
+if (fromLink) {
+  sessionStorage.setItem(TOKEN_KEY, fromLink[1]);
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
+route();
     } catch (err) {
       sessionStorage.removeItem(TOKEN_KEY);
       errBox.replaceChildren(h("p", { class: "error" }, err instanceof AuthError ? err.message : `Could not reach the server: ${err.message}`));
@@ -409,6 +427,15 @@ function followLog(runId, stepId, pre, stateEl) {
 
   run();
   return { stepId, abort };
+}
+
+// A link such as /#token=... (printed by a local `forgeline server` that generated its own
+// token) signs in once. The fragment is never sent to the server, and it is removed from the
+// address bar and history entry straight away.
+const fromLink = location.hash.match(/^#token=([A-Za-z0-9_-]+)$/);
+if (fromLink) {
+  sessionStorage.setItem(TOKEN_KEY, fromLink[1]);
+  history.replaceState(null, "", location.pathname + location.search);
 }
 
 route();

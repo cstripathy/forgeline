@@ -124,3 +124,50 @@ func TestServerRefusesWeakConfig(t *testing.T) {
 		t.Fatalf("exit %d, stderr %q, want refusal over the token", code, errb.String())
 	}
 }
+
+func TestIsLoopbackListen(t *testing.T) {
+	tests := map[string]bool{
+		"127.0.0.1:8080": true, "localhost:8080": true, "[::1]:8080": true, "127.0.0.1:0": true,
+		":8080": false, "0.0.0.0:8080": false, "[::]:8080": false, "10.0.0.5:8080": false, "example.com:80": false, "garbage": false,
+	}
+	for addr, want := range tests {
+		if got := isLoopbackListen(addr); got != want {
+			t.Errorf("isLoopbackListen(%q) = %v, want %v", addr, got, want)
+		}
+	}
+}
+
+func TestServerGeneratesTokenOnLoopbackOnly(t *testing.T) {
+	// Loopback with no token: starts, prints a usable link, and the generated token works.
+	ctx, cancel := context.WithCancel(context.Background())
+	var out, errb syncBuffer
+	done := make(chan int, 1)
+	go func() {
+		done <- runServer(ctx, []string{"--listen", "127.0.0.1:0", "--data-dir", t.TempDir()}, &out, &errb,
+			&executor.Fake{}, func(string) string { return "" })
+	}()
+	defer func() { cancel(); <-done }()
+	re := regexp.MustCompile(`Open:\s+(http://\S+)/#token=(\S+)`)
+	var m []string
+	for i := 0; i < 500 && m == nil; i++ {
+		m = re.FindStringSubmatch(out.String())
+		time.Sleep(10 * time.Millisecond)
+	}
+	if m == nil {
+		t.Fatalf("no sign-in link printed; stdout %q stderr %q", out.String(), errb.String())
+	}
+	if len(m[2]) < 32 {
+		t.Errorf("generated token %q is too short", m[2])
+	}
+	if code, _, errs := submit(t, m[1], m[2], "--no-source", copyExample(t)); code != 0 {
+		t.Errorf("submitting with the generated token failed: exit %d, %s", code, errs)
+	}
+
+	// A non-loopback address must not invent a token.
+	var out2, err2 bytes.Buffer
+	code := runServer(context.Background(), []string{"--listen", "0.0.0.0:0", "--data-dir", t.TempDir()}, &out2, &err2,
+		&executor.Fake{}, func(string) string { return "" })
+	if code != 1 || !strings.Contains(err2.String(), "FORGELINE_TOKEN is required") {
+		t.Errorf("non-loopback without token: exit %d, stderr %q", code, err2.String())
+	}
+}
