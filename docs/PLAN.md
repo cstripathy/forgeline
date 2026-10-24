@@ -228,6 +228,13 @@ design note.
 
 When step 13 is done, mark M2 done in `docs/ROADMAP.md`.
 
+## M2b: onboarding and connectors (designed, not started)
+
+Design: [docs/design/004-onboarding-and-connectors.md](design/004-onboarding-and-connectors.md).
+Steps O1 to O6 are listed there with how each is checked. It is blocked on three maintainer
+decisions at the end of that note (GitHub sign-in, how AWS changes are applied, which CI/CD path
+comes first). The GitHub webhook (step 11 above) is a prerequisite for O4 and for CI path 1.
+
 ## After M2 (outline only)
 
 - **M3 trust and sandbox model:** the differentiator. Write the threat model first, then
