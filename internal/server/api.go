@@ -59,10 +59,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/secrets", s.requireRole(authn.Developer, s.handleListSecrets))
 	mux.Handle("PUT /v1/secrets/{name}", s.requireRole(authn.Admin, s.handlePutSecret))
 	mux.Handle("DELETE /v1/secrets/{name}", s.requireRole(authn.Admin, s.handleDeleteSecret))
-	if s.cfg.GitHub != nil {
-		// No bearer token: GitHub cannot send one. The HMAC signature is the authentication.
-		mux.HandleFunc("POST /webhooks/github", s.handleGitHubWebhook)
-	}
+	// No bearer token: GitHub cannot send one. The HMAC signature is the authentication. The
+	// route always exists; it answers 404 until the integration is configured.
+	mux.HandleFunc("POST /webhooks/github", s.handleGitHubWebhook)
+	mux.Handle("GET /v1/integrations/github", s.requireRole(authn.Developer, s.handleGetGitHub))
+	mux.Handle("PUT /v1/integrations/github", s.requireRole(authn.Admin, s.handlePutGitHub))
+	mux.Handle("DELETE /v1/integrations/github", s.requireRole(authn.Admin, s.handleDeleteGitHub))
+	mux.Handle("POST /v1/integrations/github/test", s.requireRole(authn.Admin, s.handleTestGitHub))
 	return mux
 }
 
