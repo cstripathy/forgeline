@@ -77,6 +77,7 @@ type Trigger string
 const (
 	TriggerAPI    Trigger = "api"
 	TriggerGitHub Trigger = "github"
+	TriggerUI     Trigger = "ui"
 )
 
 // Run is one execution of a pipeline. PipelineYAML is the exact text that ran.

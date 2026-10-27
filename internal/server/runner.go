@@ -87,7 +87,7 @@ func (s *Server) runGraph(runCtx context.Context, run store.Run, g *pipeline.Gra
 			s.log.Error("recording step state", "run", run.ID, "step", stepID, "err", err)
 		}
 	}
-	secretsFor, denied := s.secretsFor(run)
+	secretsFor, denied := s.secretsFor(bg, run)
 	report := scheduler.Run(runCtx, g, s.cfg.Executor, scheduler.Options{
 		Parallelism:   s.cfg.Parallelism,
 		Workspace:     s.workspace(run.ID),
@@ -137,11 +137,11 @@ func (s *Server) runGraph(runCtx context.Context, run store.Run, g *pipeline.Gra
 // secretsFor decides what secrets a run may use. A run started by a webhook is built from
 // content a pull request or a push controls, so until runs have a trust level (note 005,
 // slice 3) it gets none: a step that asks for one fails with this reason instead of running.
-func (s *Server) secretsFor(run store.Run) (map[string]string, string) {
+func (s *Server) secretsFor(ctx context.Context, run store.Run) (map[string]string, string) {
 	if run.Trigger == store.TriggerGitHub {
 		return nil, "runs started by GitHub receive no secrets yet (docs/design/005-threat-model.md, slice 3)"
 	}
-	return s.cfg.Secrets, ""
+	return s.stepSecrets(ctx), ""
 }
 
 func (s *Server) register(id string, cancel context.CancelFunc) *runCtl {

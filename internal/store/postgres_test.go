@@ -75,7 +75,8 @@ func TestPostgresMigrationsAreIdempotent(t *testing.T) {
 	}
 	var n int
 	admin.QueryRow(ctx, "SELECT count(*) FROM "+schema+".schema_migrations").Scan(&n)
-	if n != 1 {
-		t.Fatalf("schema_migrations has %d rows, want 1", n)
+	files, _ := migrationFiles.ReadDir("migrations")
+	if n != len(files) {
+		t.Fatalf("schema_migrations has %d rows, want %d (one per migration file)", n, len(files))
 	}
 }

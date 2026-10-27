@@ -82,6 +82,7 @@ type Server struct {
 	throttle throttle
 	setupMu  sync.Mutex // serialises first-run setup
 	userMu   sync.Mutex // serialises changes to accounts, for the last-admin rule
+	pipeMu   sync.Mutex // serialises pipeline edits, for the version check
 }
 
 // New validates cfg, prepares the data directory and returns a Server. Call Start to begin

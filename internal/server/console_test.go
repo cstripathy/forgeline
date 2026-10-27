@@ -190,6 +190,9 @@ func TestRolesGateEveryAction(t *testing.T) {
 		b.expect(403, "POST", "/v1/users", map[string]any{"username": "x-" + name, "password": pw, "role": "admin"})
 	}
 	admin.expect(200, "GET", "/v1/users", nil)
+	// Secret names are for people who build pipelines, not for viewers.
+	view.expect(403, "GET", "/v1/secrets", nil)
+	dev.expect(200, "GET", "/v1/secrets", nil)
 
 	// Refusals are in the audit log.
 	var out struct{ Events []AuditEvent }
@@ -200,8 +203,8 @@ func TestRolesGateEveryAction(t *testing.T) {
 			denied++
 		}
 	}
-	if denied < 6 {
-		t.Errorf("audit log has %d access.denied events for the refused calls, want at least 6: %+v", denied, out.Events)
+	if denied < 7 {
+		t.Errorf("audit log has %d access.denied events for the refused calls, want at least 7: %+v", denied, out.Events)
 	}
 }
 
