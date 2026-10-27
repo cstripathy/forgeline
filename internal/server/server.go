@@ -52,6 +52,10 @@ type Config struct {
 	Secrets map[string]string
 	// GitHub, if set, enables POST /webhooks/github and commit status reporting.
 	GitHub *GitHubConfig
+	// StoreKind and KeySource are shown on the infrastructure page: "memory" or "postgres" for
+	// the run store, and "env", "file" or "ephemeral" for where the vault key came from.
+	StoreKind string
+	KeySource string
 	// Docs keeps the console's accounts, pipelines, secrets and audit log. Nil means an
 	// in-memory store, which loses everything on exit.
 	Docs docstore.Store
@@ -84,6 +88,11 @@ type Server struct {
 	setupMu  sync.Mutex // serialises first-run setup
 	userMu   sync.Mutex // serialises changes to accounts, for the last-admin rule
 	pipeMu   sync.Mutex // serialises pipeline edits, for the version check
+
+	started  time.Time
+	run      cmdRunner // runs docker and aws; replaced in tests
+	awsCache awsCache
+	cloud    cloudState
 
 	ghCfg        atomic.Pointer[GitHubConfig] // the active GitHub settings; nil means off
 	ghSource     atomic.Value                 // "flags" or "console"
@@ -154,6 +163,7 @@ func New(cfg Config) (*Server, error) {
 		cfg.Vault = v
 	}
 	srv := &Server{
+		started: time.Now().UTC(), run: execRunner,
 		docs: cfg.Docs, vault: cfg.Vault,
 		cfg: cfg, log: cfg.Logger,
 		wake:          make(chan struct{}, cfg.MaxRuns),
@@ -190,6 +200,7 @@ func (s *Server) Start(ctx context.Context) error {
 			}
 		}
 	}
+	s.failInterruptedChanges(ctx)
 	n, err := s.cfg.Store.FailInterruptedRuns(ctx, "server restarted")
 	if err != nil {
 		return fmt.Errorf("recovering interrupted runs: %w", err)
