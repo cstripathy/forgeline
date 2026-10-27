@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -35,7 +36,7 @@ func TestDockerArgs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := dockerArgs("n", tt.run)
+			got, err := dockerArgs("n", tt.run, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -53,7 +54,7 @@ func TestDockerArgsRejects(t *testing.T) {
 		"both":            {ID: "a", Image: "alpine", Script: "true", Command: []string{"true"}},
 		"unknown network": {ID: "a", Image: "alpine", Script: "true", Network: "host"},
 	} {
-		if _, err := dockerArgs("n", run); err == nil {
+		if _, err := dockerArgs("n", run, ""); err == nil {
 			t.Errorf("%s: want error", name)
 		}
 	}
@@ -120,6 +121,159 @@ func TestDockerRunsRealContainer(t *testing.T) {
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("err = %v, want ErrTimeout", err)
 	}
+}
+
+func TestDockerArgsSecretsUseEnvFileNotArgv(t *testing.T) {
+	run := StepRun{ID: "a", Image: "alpine", Script: "true", Env: map[string]string{"PLAIN": "1"},
+		Secrets: map[string]string{"TOKEN": "hunter2-hunter2"}}
+	args, err := dockerArgs("n", run, "/tmp/forgeline-secrets-x/env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, "\x00")
+	if strings.Contains(joined, "hunter2") {
+		t.Fatalf("a secret value is in argv: %v", args)
+	}
+	if !strings.Contains(joined, "--env-file\x00/tmp/forgeline-secrets-x/env") {
+		t.Fatalf("no --env-file in %v", args)
+	}
+	if strings.Contains(joined, "TOKEN") {
+		t.Fatalf("the secret's name should not be in argv either: %v", args)
+	}
+	if !strings.Contains(joined, "-e\x00PLAIN=1") {
+		t.Fatalf("plain env should still be passed with -e: %v", args)
+	}
+}
+
+func TestWriteSecretsFile(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	path, cleanup, err := writeSecretsFile(StepRun{ID: "a", Secrets: map[string]string{
+		"B": "second value", "A": `first "value" with $dollar and =equals`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "A=first \"value\" with $dollar and =equals\nB=second value\n"; string(b) != want {
+		t.Fatalf("file = %q, want %q", b, want)
+	}
+	fi, _ := os.Stat(path)
+	di, _ := os.Stat(filepath.Dir(path))
+	if fi.Mode().Perm() != 0o600 || di.Mode().Perm() != 0o700 {
+		t.Fatalf("modes: file %v, dir %v; want 0600 and 0700", fi.Mode().Perm(), di.Mode().Perm())
+	}
+	cleanup()
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Fatalf("directory still exists after cleanup: %v", err)
+	}
+
+	p2, c2, err := writeSecretsFile(StepRun{ID: "a"})
+	if err != nil || p2 != "" {
+		t.Fatalf("no secrets: path %q, err %v; want empty path", p2, err)
+	}
+	c2()
+}
+
+func TestWriteSecretsFileRejectsWithoutLeaking(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	for name, secrets := range map[string]map[string]string{
+		"newline in value": {"TOKEN": "line-one\nINJECTED=1"},
+		"carriage return":  {"TOKEN": "abc\rdef-ghi"},
+		"NUL":              {"TOKEN": "abc\x00def-ghi"},
+		"bad name":         {"A=B": "valid-value-1"},
+		"empty name":       {"": "valid-value-1"},
+	} {
+		_, _, err := writeSecretsFile(StepRun{ID: "a", Secrets: secrets})
+		if err == nil {
+			t.Errorf("%s: want error", name)
+			continue
+		}
+		for _, v := range secrets {
+			if strings.Contains(err.Error(), v) || strings.Contains(err.Error(), "INJECTED") {
+				t.Errorf("%s: error leaks a value: %v", name, err)
+			}
+		}
+	}
+	if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
+		t.Fatalf("rejected secrets left files behind: %v", entries)
+	}
+}
+
+// TestDockerSecrets runs real containers. See docs/design/005-threat-model.md, threat T3.
+func TestDockerSecrets(t *testing.T) {
+	dockerOrSkip(t)
+	image := os.Getenv("FORGELINE_DOCKER_TEST_IMAGE")
+	if image == "" {
+		image = "alpine:3.24"
+	}
+
+	t.Run("the step receives values exactly, and the file is gone afterwards", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Setenv("TMPDIR", tmp)
+		const odd = `  spaces, "quotes", 'single', $DOLLAR, =equals, #hash, \backslash  `
+		var logs bytes.Buffer
+		res, err := Docker{}.Run(context.Background(), StepRun{ID: "s", Image: image, Timeout: time.Minute,
+			Script:  `printf '[%s]' "$ODD"; printf '[%s]' "$PLAIN"`,
+			Env:     map[string]string{"PLAIN": "p"},
+			Secrets: map[string]string{"ODD": odd}}, &logs)
+		if err != nil || res.ExitCode != 0 {
+			t.Fatalf("exit %d, err %v\n%s", res.ExitCode, err, logs.String())
+		}
+		if want := "[" + odd + "][p]"; logs.String() != want {
+			t.Fatalf("output = %q, want %q", logs.String(), want)
+		}
+		if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
+			t.Fatalf("secrets file left behind: %v", entries)
+		}
+	})
+
+	t.Run("a step's own DOCKER_HOST does not reach the docker CLI", func(t *testing.T) {
+		// If the executor put secrets in the CLI's environment, or let step env leak into it,
+		// DOCKER_HOST would redirect the CLI to a dead address and the step would not start.
+		var logs bytes.Buffer
+		res, err := Docker{}.Run(context.Background(), StepRun{ID: "s", Image: image, Timeout: time.Minute,
+			Script:  `echo "host=$DOCKER_HOST secret=$TOKEN"`,
+			Env:     map[string]string{"DOCKER_HOST": "tcp://127.0.0.1:1", "DOCKER_CONFIG": "/nonexistent", "HTTP_PROXY": "http://127.0.0.1:1"},
+			Secrets: map[string]string{"TOKEN": "tok-12345678"}}, &logs)
+		if err != nil || res.ExitCode != 0 {
+			t.Fatalf("exit %d, err %v\n%s", res.ExitCode, err, logs.String())
+		}
+		if got := strings.TrimSpace(logs.String()); got != "host=tcp://127.0.0.1:1 secret=tok-12345678" {
+			t.Fatalf("output = %q: the step should see its own DOCKER_HOST and the secret", got)
+		}
+	})
+
+	t.Run("a secret does not appear in the process list while the step runs", func(t *testing.T) {
+		const val = "ps-visible-canary-9f3a"
+		done := make(chan string, 1)
+		go func() {
+			var logs bytes.Buffer
+			Docker{}.Run(context.Background(), StepRun{ID: "s", Image: image, Timeout: time.Minute,
+				Script: `sleep 4`, Secrets: map[string]string{"CANARY": val}}, &logs)
+			done <- logs.String()
+		}()
+		deadline := time.Now().Add(3 * time.Second)
+		seen := false
+		for time.Now().Before(deadline) && !seen {
+			out, _ := exec.Command("ps", "-eo", "args").Output()
+			for _, line := range strings.Split(string(out), "\n") {
+				if strings.Contains(line, "--env-file") && strings.Contains(line, "forgeline-") {
+					seen = true // the docker CLI is running; this is the moment argv matters
+				}
+				if strings.Contains(line, val) {
+					t.Fatalf("the secret value is in the process list: %q", line)
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !seen {
+			t.Fatal("never saw the docker process, so the check proved nothing")
+		}
+		<-done
+	})
 }
 
 // TestDockerSandboxProperties tries to break the isolation a step is promised, against a real

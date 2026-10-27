@@ -22,6 +22,10 @@ type StepRun struct {
 	// Command is a program and arguments run without a shell.
 	Command []string
 	Env     map[string]string
+	// Secrets are environment variables whose values must not appear in argv, logs or the
+	// cache key. Real executors pass them through a private file, never `-e NAME=value`.
+	// The scheduler fills this with only the secrets the step lists.
+	Secrets map[string]string
 	// WorkDir is the working directory inside the container. Empty means /workspace.
 	WorkDir string
 	// Timeout is the maximum run time. Zero means no limit.

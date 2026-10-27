@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cstripathy/forgeline/internal/executor"
+	"github.com/cstripathy/forgeline/internal/secrets"
 	"github.com/cstripathy/forgeline/internal/server"
 	"github.com/cstripathy/forgeline/internal/store"
 )
@@ -30,6 +31,9 @@ Environment:
                           listen address is loopback, a random token is generated for this run and
                           printed; on any other address the token is required.
   FORGELINE_DATABASE_URL  Postgres connection URL; if unset, runs are kept in memory and lost on exit
+  FORGELINE_SECRET_<NAME> a secret that steps can request with permissions.secrets: [NAME]. Values
+                          are at least 8 characters, never stored, and masked in logs. Runs started
+                          by GitHub receive no secrets yet.
 
 GitHub triggers (POST /webhooks/github) turn on when --github-allow is given. They also need:
   FORGELINE_GITHUB_WEBHOOK_SECRET  the webhook's secret (at least 16 characters)
@@ -81,6 +85,12 @@ func runServer(ctx context.Context, args []string, stdout, stderr io.Writer, ex 
 		generated = true
 	}
 
+	stepSecrets, err := secrets.FromEnviron(environ())
+	if err != nil {
+		fmt.Fprintf(stderr, "forgeline: %v\n", err)
+		return 1
+	}
+
 	var st store.Store
 	if url := getenv("FORGELINE_DATABASE_URL"); url != "" {
 		pg, err := store.OpenPostgres(ctx, url)
@@ -108,7 +118,7 @@ func runServer(ctx context.Context, args []string, stdout, stderr io.Writer, ex 
 
 	srv, err := server.New(server.Config{
 		Store: st, Executor: ex, Token: token, DataDir: *dataDir,
-		MaxRuns: *maxRuns, Parallelism: *parallel, GitHub: gh,
+		MaxRuns: *maxRuns, Parallelism: *parallel, GitHub: gh, Secrets: stepSecrets,
 		Logger: slog.New(slog.NewTextHandler(stderr, nil)),
 	})
 	if err != nil {
@@ -130,6 +140,9 @@ func runServer(ctx context.Context, args []string, stdout, stderr io.Writer, ex 
 	errc := make(chan error, 1)
 	go func() { errc <- httpSrv.Serve(ln) }()
 	fmt.Fprintf(stdout, "listening on http://%s\n", ln.Addr())
+	if len(stepSecrets) > 0 {
+		fmt.Fprintf(stdout, "secrets available to steps that list them: %s\n", strings.Join(secrets.Names(stepSecrets), ", "))
+	}
 	if gh != nil {
 		fmt.Fprintf(stdout, "GitHub webhook: POST /webhooks/github, %d repository rule(s)\n", len(gh.Allow))
 	}

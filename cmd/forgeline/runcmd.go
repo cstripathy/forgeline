@@ -16,6 +16,7 @@ import (
 	"github.com/cstripathy/forgeline/internal/executor"
 	"github.com/cstripathy/forgeline/internal/pipeline"
 	"github.com/cstripathy/forgeline/internal/scheduler"
+	"github.com/cstripathy/forgeline/internal/secrets"
 )
 
 // runPipeline implements `forgeline run`. The workspace is the directory holding the
@@ -49,6 +50,11 @@ func runPipeline(args []string, stdout, stderr io.Writer, ex executor.Executor) 
 		fmt.Fprintf(stderr, "forgeline: %v\n", err)
 		return 1
 	}
+	stepSecrets, err := secrets.FromEnviron(environ())
+	if err != nil {
+		fmt.Fprintf(stderr, "forgeline: %v\n", err)
+		return 1
+	}
 	if !*noCache {
 		ex = cache.Executor{Next: ex, Store: &cache.Store{Dir: filepath.Join(workspace, ".forgeline", "cache")}}
 	}
@@ -60,6 +66,7 @@ func runPipeline(args []string, stdout, stderr io.Writer, ex executor.Executor) 
 	report := scheduler.Run(ctx, g, ex, scheduler.Options{
 		Parallelism: *parallel,
 		Workspace:   workspace,
+		Secrets:     stepSecrets,
 		Logs:        logs.writer,
 	})
 	logs.flush()

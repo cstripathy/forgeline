@@ -31,6 +31,9 @@ func main() {
 }
 
 // run executes the command line and returns the process exit code.
+// environ returns the process environment. Tests replace it to supply FORGELINE_SECRET_*.
+var environ = os.Environ
+
 func run(args []string, stdout, stderr io.Writer) int {
 	return runWith(args, stdout, stderr, executor.Docker{})
 }

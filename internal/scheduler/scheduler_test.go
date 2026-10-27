@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -227,3 +228,130 @@ func TestRunCallbacks(t *testing.T) {
 		t.Error("skipped step b got a start callback")
 	}
 }
+
+func withSecrets(s pipeline.Step, names ...string) pipeline.Step {
+	s.Permissions.Secrets = names
+	return s
+}
+
+func TestStepsReceiveOnlyTheSecretsTheyList(t *testing.T) {
+	g := plan(t,
+		withSecrets(st("deploy"), "DEPLOY_KEY"),
+		withSecrets(st("both"), "DEPLOY_KEY", "NPM_TOKEN"),
+		st("plain"))
+	f := &executor.Fake{}
+	r := Run(context.Background(), g, f, Options{Parallelism: 1, Secrets: map[string]string{
+		"DEPLOY_KEY": "deploy-key-value", "NPM_TOKEN": "npm-token-value", "UNUSED": "unused-secret-value"}})
+	if !r.OK() {
+		t.Fatalf("report = %+v", r.Steps)
+	}
+	got := map[string]map[string]string{}
+	for _, c := range f.Calls() {
+		got[c.ID] = c.Secrets
+	}
+	if len(got["deploy"]) != 1 || got["deploy"]["DEPLOY_KEY"] != "deploy-key-value" {
+		t.Errorf("deploy got %v, want only DEPLOY_KEY", got["deploy"])
+	}
+	if len(got["both"]) != 2 {
+		t.Errorf("both got %v, want two secrets", got["both"])
+	}
+	if len(got["plain"]) != 0 {
+		t.Errorf("a step that lists no secrets got %v", got["plain"])
+	}
+}
+
+func TestMissingSecretFailsTheStepByName(t *testing.T) {
+	g := plan(t, withSecrets(st("a"), "NOT_SET"), st("b", "a"))
+	f := &executor.Fake{}
+	r := Run(context.Background(), g, f, Options{Secrets: map[string]string{"OTHER": "other-secret-value"}})
+	s := statuses(r)
+	if s["a"] != StatusFailed || s["b"] != StatusSkipped {
+		t.Fatalf("statuses = %v, want a failed and b skipped", s)
+	}
+	err := r.Steps[0].Err.Error()
+	if !contains(err, `"NOT_SET"`) || !contains(err, "FORGELINE_SECRET_NOT_SET") {
+		t.Errorf("error %q should name the secret and how to set it", err)
+	}
+	if contains(err, "other-secret-value") {
+		t.Errorf("error leaks a value: %q", err)
+	}
+	if len(f.Calls()) != 0 {
+		t.Errorf("a step with a missing secret must not start; calls = %v", f.Calls())
+	}
+}
+
+func TestSecretsDeniedRefusesOnlyStepsThatAskForSecrets(t *testing.T) {
+	g := plan(t, withSecrets(st("deploy"), "DEPLOY_KEY"), st("test"))
+	f := &executor.Fake{}
+	r := Run(context.Background(), g, f, Options{Parallelism: 1,
+		Secrets: map[string]string{"DEPLOY_KEY": "deploy-key-value"}, SecretsDenied: "this run is untrusted"})
+	s := statuses(r)
+	if s["deploy"] != StatusFailed || s["test"] != StatusSucceeded {
+		t.Fatalf("statuses = %v, want deploy failed and test succeeded", s)
+	}
+	for _, res := range r.Steps {
+		if res.ID == "deploy" && (!contains(res.Err.Error(), "DEPLOY_KEY") || !contains(res.Err.Error(), "untrusted")) {
+			t.Errorf("error %q should name the secret and the reason", res.Err)
+		}
+	}
+	for _, c := range f.Calls() {
+		if len(c.Secrets) != 0 {
+			t.Errorf("step %s received secrets %v from a denied run", c.ID, c.Secrets)
+		}
+		if c.ID == "deploy" {
+			t.Error("the refused step must not start")
+		}
+	}
+}
+
+func TestLogsMaskEverySecretValue(t *testing.T) {
+	const own, other = "own-secret-value", "other-secret-value"
+	g := plan(t, withSecrets(st("a"), "OWN"))
+	f := &executor.Fake{Handler: func(_ context.Context, s executor.StepRun, logs io.Writer) (executor.Result, error) {
+		// One value split across writes, one the step never asked for, and a tail that
+		// looks like the start of a value and is only released when the step ends.
+		io.WriteString(logs, "token="+own[:6])
+		io.WriteString(logs, own[6:]+"\nother="+other+"\nend own-sec")
+		return executor.Result{ExitCode: 1}, nil // a failing step must still flush
+	}}
+	var out syncBuf
+	Run(context.Background(), g, f, Options{
+		Secrets: map[string]string{"OWN": own, "OTHER": other},
+		Logs:    func(string) io.Writer { return &out },
+	})
+	got := out.String()
+	if contains(got, own) || contains(got, other) {
+		t.Fatalf("log leaks a secret: %q", got)
+	}
+	if want := "token=***\nother=***\nend own-sec"; got != want {
+		t.Fatalf("log = %q, want %q", got, want)
+	}
+}
+
+func TestNoSecretsLeavesLogsUntouched(t *testing.T) {
+	g := plan(t, st("a"))
+	f := &executor.Fake{Handler: func(_ context.Context, _ executor.StepRun, logs io.Writer) (executor.Result, error) {
+		io.WriteString(logs, "hello *** world")
+		return executor.Result{}, nil
+	}}
+	var out syncBuf
+	Run(context.Background(), g, f, Options{Logs: func(string) io.Writer { return &out }})
+	if out.String() != "hello *** world" {
+		t.Fatalf("log = %q", out.String())
+	}
+}
+
+type syncBuf struct {
+	mu sync.Mutex
+	b  []byte
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.b = append(s.b, p...)
+	return len(p), nil
+}
+func (s *syncBuf) String() string { s.mu.Lock(); defer s.mu.Unlock(); return string(s.b) }
+
+func contains(s, sub string) bool { return strings.Contains(s, sub) }

@@ -43,6 +43,9 @@ type Config struct {
 	// LogPollInterval is how often a live log stream checks the store for new output.
 	// Zero means 250 ms.
 	LogPollInterval time.Duration
+	// Secrets are the values steps may request through permissions.secrets, by name. They
+	// come from the server's own configuration, never from a pipeline or an API request.
+	Secrets map[string]string
 	// GitHub, if set, enables POST /webhooks/github and commit status reporting.
 	GitHub *GitHubConfig
 	Logger *slog.Logger

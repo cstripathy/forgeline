@@ -67,7 +67,10 @@ type Executor struct {
 
 // Run implements executor.Executor.
 func (e Executor) Run(ctx context.Context, s executor.StepRun, logs io.Writer) (executor.Result, error) {
-	if len(s.Inputs) == 0 {
+	// A step with secrets is never cached. The key cannot include the values (a stored hash of
+	// a low-entropy secret can be guessed offline), and a key without them would serve a
+	// cached success after the secret was rotated or revoked. See docs/design/005 (T3).
+	if len(s.Inputs) == 0 || len(s.Secrets) > 0 {
 		return e.Next.Run(ctx, s, logs)
 	}
 	key, err := Key(s)

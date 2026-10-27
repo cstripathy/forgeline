@@ -23,6 +23,7 @@ func TestValidateAcceptsValidPipeline(t *testing.T) {
 	p.Steps[1].WorkDir = "/src"
 	p.Steps[1].Timeout = "10m"
 	p.Steps[1].Permissions.Network = NetworkNone
+	p.Steps[1].Permissions.Secrets = []string{"NPM_TOKEN", "_deploy_key"}
 	p.Steps[1].Inputs = []string{"go.mod", "**/*.go", "docs", "src/[ab]?.txt"}
 	if err := p.Validate(); err != nil {
 		t.Fatalf("Validate() = %v, want nil", err)
@@ -66,6 +67,14 @@ func TestValidateRejects(t *testing.T) {
 		{"bad timeout", func(p *Pipeline) { p.Steps[0].Timeout = "soon" }, "steps[0].timeout", "not a valid duration"},
 		{"unknown network", func(p *Pipeline) { p.Steps[0].Permissions.Network = "host" }, "steps[0].permissions.network", `must be "none" or "egress"`},
 		{"network is case sensitive", func(p *Pipeline) { p.Steps[0].Permissions.Network = "None" }, "steps[0].permissions.network", "must be"},
+		{"bad secret name", func(p *Pipeline) { p.Steps[0].Permissions.Secrets = []string{"1BAD"} }, "steps[0].permissions.secrets[0]", "invalid secret name"},
+		{"secret with equals sign", func(p *Pipeline) { p.Steps[0].Permissions.Secrets = []string{"A=B"} }, "steps[0].permissions.secrets[0]", "invalid secret name"},
+		{"empty secret name", func(p *Pipeline) { p.Steps[0].Permissions.Secrets = []string{""} }, "steps[0].permissions.secrets[0]", "invalid secret name"},
+		{"duplicate secret", func(p *Pipeline) { p.Steps[0].Permissions.Secrets = []string{"TOKEN", "TOKEN"} }, "steps[0].permissions.secrets[1]", "duplicate secret"},
+		{"secret also in env", func(p *Pipeline) {
+			p.Steps[0].Env = map[string]string{"TOKEN": "x"}
+			p.Steps[0].Permissions.Secrets = []string{"TOKEN"}
+		}, "steps[0].permissions.secrets[0]", "also set in env"},
 		{"zero timeout", func(p *Pipeline) { p.Steps[0].Timeout = "0s" }, "steps[0].timeout", "must be positive"},
 		{"negative timeout", func(p *Pipeline) { p.Steps[0].Timeout = "-5m" }, "steps[0].timeout", "must be positive"},
 		{"empty input", func(p *Pipeline) { p.Steps[0].Inputs = []string{""} }, "steps[0].inputs[0]", "must not be empty"},

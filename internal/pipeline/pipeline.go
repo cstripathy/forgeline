@@ -29,8 +29,8 @@ type Step struct {
 	Env     map[string]string `json:"env,omitempty" doc:"Environment variables for the step. Names must be valid identifiers."`
 	WorkDir string            `json:"workdir,omitempty" doc:"Absolute working directory inside the container." pattern:"^/"`
 	Timeout string            `json:"timeout,omitempty" doc:"Maximum run time as a duration such as 30s or 10m. Must be positive."`
-	// Permissions limits what the step may do. Only network is enforced so far; the rest of
-	// the reserved set (secrets, untrusted input) is described in docs/design/005-threat-model.md.
+	// Permissions limits what the step may do. Network and secrets are enforced so far; the rest of
+	// the reserved set (untrusted input) is described in docs/design/005-threat-model.md.
 	Permissions Permissions `json:"permissions,omitempty" doc:"What the step is allowed to do. See docs/design/005-threat-model.md."`
 	Inputs      []string    `json:"inputs,omitempty" doc:"Workspace-relative file globs that make up the step's cache key. A step without inputs is never cached."`
 }
@@ -38,6 +38,9 @@ type Step struct {
 // Permissions is what a step is allowed to do beyond running in its container.
 type Permissions struct {
 	Network string `json:"network,omitempty" doc:"Outbound network access: none cuts the step off from every network, egress allows it. Empty means egress for now." enum:"none,egress"`
+	// Secrets names the secrets the step receives, as environment variables of the same name.
+	// Values come from the server's configuration, never from the pipeline file.
+	Secrets []string `json:"secrets,omitempty" doc:"Names of the secrets this step receives as environment variables. Values come from the server or the local environment (FORGELINE_SECRET_<NAME>), never from the pipeline file. A step gets only what it lists." itemPattern:"^[A-Za-z_][A-Za-z0-9_]*$"`
 }
 
 // Network values.
