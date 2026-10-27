@@ -29,6 +29,10 @@ const (
 	stepContainer = "forgeline-"
 )
 
+// stepContainerRE matches the names the Docker executor gives step containers: forgeline- and
+// 12 hex digits. Other containers that merely start with "forgeline-" are not steps.
+var stepContainerRE = regexp.MustCompile(`^forgeline-[0-9a-f]{12}$`)
+
 // cmdRunner runs an external program. It exists so tests can stand in for docker and aws.
 type cmdRunner func(ctx context.Context, name string, args ...string) (stdout []byte, stderr string, err error)
 
@@ -214,7 +218,7 @@ func (s *Server) stepContainers(ctx context.Context) []StepContainerJSON {
 			continue
 		}
 		var c struct{ Names, Image, Status, RunningFor string }
-		if json.Unmarshal([]byte(line), &c) != nil || !strings.HasPrefix(c.Names, stepContainer) {
+		if json.Unmarshal([]byte(line), &c) != nil || !stepContainerRE.MatchString(c.Names) {
 			continue
 		}
 		list = append(list, StepContainerJSON{Name: c.Names, Image: c.Image, Status: c.Status, Running: c.RunningFor})

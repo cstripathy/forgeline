@@ -4,8 +4,24 @@ Forgeline is an open-source, self-hostable delivery platform where AI agents run
 It aims to combine typed pipelines, isolated execution, built-in security gates, and
 progressive delivery (canary and blue-green) in one tool you can run yourself.
 
-> **Status: pre-alpha.** Nothing here runs pipelines yet. This repository currently holds
-> the project's direction, roadmap, and a minimal Go skeleton. See [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status: pre-alpha.** Pipelines run on a laptop in Docker, with a server, a web console and a
+> GitHub trigger. The trust model is partly built. See [docs/ROADMAP.md](docs/ROADMAP.md) for what
+> is done and what is not.
+
+## Try the console
+
+```sh
+make run-local        # needs Go and Docker; builds and starts the server on 127.0.0.1:8080
+```
+
+Open the link it prints. The first visit asks you to create an administrator, using the token
+the server printed. From the console you can write and run pipelines, add secrets, connect GitHub,
+see the Docker host, connect an AWS account, and propose cloud changes that a second administrator
+must approve. [Screenshots](docs/console/README.md) and [design note 006](docs/design/006-console.md)
+show what each page does and what has not been checked.
+
+Accounts, pipelines, secrets and settings are kept in `<data-dir>/console.json`, encrypted where
+they hold secrets; set `FORGELINE_DATABASE_URL` to keep them (and run history) in Postgres instead.
 
 ## Why
 

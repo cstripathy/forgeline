@@ -36,3 +36,5 @@ jobs:
       # The runner image ships Go, and go.mod's version triggers a matching toolchain
       # download. TODO: add actions/setup-go pinned to a verified commit SHA.
       - run: make ci
+      # The console stylesheet is generated; fail if the committed one is out of date.
+      - run: make css-check

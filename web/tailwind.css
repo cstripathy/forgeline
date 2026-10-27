@@ -1,0 +1,69 @@
+/* Source of internal/server/ui/app.css. Regenerate with `make css`; CI fails if the committed
+   file differs. Tailwind v4 reads the class names it finds in the files listed by @source. */
+@import "tailwindcss";
+@source "../internal/server/ui";
+
+/* Dark mode follows a class on <html>, set by the UI from the person's choice or their system. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+  --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: .45; transform: scale(.82); }
+  }
+}
+
+@layer base {
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
+  body { @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-brand-500; }
+  ::selection { @apply bg-brand-200 text-brand-900; }
+}
+
+/* Shared component classes. @utility (rather than a plain class) lets them be composed with
+   @apply and used with variants such as hover: and dark:. */
+@utility btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50; }
+@utility btn-primary { @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-700 active:bg-brand-800; }
+@utility btn-secondary { @apply btn border border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800; }
+@utility btn-danger { @apply btn bg-rose-600 text-white shadow-sm hover:bg-rose-700; }
+@utility btn-ghost { @apply btn text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800; }
+@utility btn-sm { @apply px-2.5 py-1.5 text-xs; }
+
+@utility card { @apply rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900; }
+@utility card-pad { @apply p-5; }
+@utility muted { @apply text-slate-500 dark:text-slate-400; }
+@utility h-page { @apply text-2xl font-semibold tracking-tight; }
+@utility h-section { @apply text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400; }
+
+@utility input { @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:placeholder:text-slate-500 dark:disabled:bg-slate-800; }
+@utility label { @apply mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300; }
+@utility hint { @apply mt-1 text-xs text-slate-500 dark:text-slate-400; }
+
+@utility tbl {
+  @apply w-full text-left text-sm;
+  & th { @apply whitespace-nowrap border-b border-slate-200 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400; }
+  & td { @apply border-b border-slate-100 px-4 py-3 align-middle dark:border-slate-800/70; }
+  & tbody tr:last-child td { @apply border-b-0; }
+  & tbody tr.row-link { @apply cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50; }
+}
+
+@utility pill { @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium; }
+@utility pill-ok { @apply pill bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20; }
+@utility pill-bad { @apply pill bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-400/20; }
+@utility pill-run { @apply pill bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/20 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-400/20; }
+@utility pill-wait { @apply pill bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20; }
+@utility pill-idle { @apply pill bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-500/20 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600/40; }

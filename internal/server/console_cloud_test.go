@@ -225,7 +225,7 @@ func (f *fakeCLI) docker(args []string) ([]byte, string, error) {
 	case "info":
 		return []byte(`{"ServerVersion":"29.3.0","Name":"devbox","OperatingSystem":"Ubuntu 24.04","NCPU":8,"MemTotal":16000000000,"Driver":"overlayfs","Containers":5,"ContainersRunning":1,"Images":9}`), "", nil
 	case "ps":
-		return []byte(`{"Names":"forgeline-abc123","Image":"alpine:3.24","Status":"Up 3 seconds","RunningFor":"3 seconds ago"}` + "\n" +
+		return []byte(`{"Names":"forgeline-abc123def456","Image":"alpine:3.24","Status":"Up 3 seconds","RunningFor":"3 seconds ago"}` + "\n" +
 			`{"Names":"forgeline-testpg","Image":"postgres:18","Status":"Up","RunningFor":"1 hour ago"}`), "", nil
 	}
 	return nil, "unexpected docker call", errors.New("exit 1")
@@ -298,7 +298,7 @@ func TestRuntimeOverviewShowsServerDockerAndStepContainers(t *testing.T) {
 	if !rt.Docker.Available || rt.Docker.Version != "29.3.0" || rt.Docker.CPUs != 8 || rt.Docker.ContainersRunning != 1 {
 		t.Errorf("docker = %+v", rt.Docker)
 	}
-	if len(rt.Steps) != 2 || rt.Steps[0].Name != "forgeline-abc123" {
+	if len(rt.Steps) != 1 || rt.Steps[0].Name != "forgeline-abc123def456" {
 		t.Errorf("steps = %+v", rt.Steps)
 	}
 	if rt.Server.Version == "" || rt.Server.Go == "" || rt.Server.MaxRuns < 1 || rt.Server.UptimeSeconds < 0 || rt.Server.DiskTotalBytes == 0 {

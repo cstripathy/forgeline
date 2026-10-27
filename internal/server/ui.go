@@ -1,9 +1,12 @@
 package server
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"io/fs"
 	"net/http"
+	"strings"
 )
 
 //go:embed ui
@@ -41,6 +44,33 @@ func uiHandler() (index, assets http.Handler) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(page)
 	}))
-	assets = secure(http.StripPrefix("/ui/", files))
+	assets = secure(http.StripPrefix("/ui/", etagged(sub, files)))
 	return index, assets
+}
+
+// etagged adds a content hash as the ETag of every embedded file and answers a matching
+// If-None-Match with 304. The files carry no modification time, so without this a browser has
+// nothing to revalidate against and may keep serving an old script after an upgrade.
+func etagged(sub fs.FS, next http.Handler) http.Handler {
+	tags := map[string]string{}
+	fs.WalkDir(sub, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if b, err := fs.ReadFile(sub, p); err == nil {
+			sum := sha256.Sum256(b)
+			tags[p] = `"` + hex.EncodeToString(sum[:8]) + `"`
+		}
+		return nil
+	})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if tag, ok := tags[strings.TrimPrefix(r.URL.Path, "/")]; ok {
+			w.Header().Set("ETag", tag)
+			if r.Header.Get("If-None-Match") == tag {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }

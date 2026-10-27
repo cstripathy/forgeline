@@ -1,6 +1,6 @@
 # 006: The web console
 
-Status: **Accepted by the maintainer, in progress.** Date: 2026-10-27.
+Status: **Built** (all eight steps below). Date: 2026-10-27. Pictures: [docs/console](../console/README.md).
 
 ## Question
 
@@ -89,3 +89,26 @@ screenshots are kept in `docs/console/`.
 
 Single sign-on (OIDC/SAML), per-project permissions, multi-tenant separation, and a secret
 store other than the built-in vault. Each of those is a separate decision.
+
+## What was built, and what was not checked
+
+All eight steps above are built, with Go tests (run with the race detector, against real Docker
+and a real PostgreSQL) and a walk through every page in a real browser.
+
+Checked by running it: sign-in and setup, roles (a viewer sees three pages and the server
+answers 403 to the rest), pipelines (create, validate, add a step from a form, save, history,
+run on real Docker with live logs), secrets (encrypted at rest, masked in output), the GitHub
+integration (against a stand-in GitHub API), the infrastructure pages (real Docker host, and a
+real AWS account read-only), and the cloud-change workflow (propose, refuse self-approval,
+reject; approve and execute against an AWS stand-in).
+
+**Not checked:** a change executed against a real AWS account (only previews and rejection were
+done there; execution was exercised against a stand-in that implements the same calls), the
+real GitHub API (a stand-in served the calls the server makes), TLS and a real reverse proxy
+(the session cookie's Secure flag is covered by a test, not by a browser over HTTPS), more than
+one server process sharing a database (the last-administrator rule and the per-target change
+lock use in-process locks), and single sign-on (not built).
+
+Known limits: the audit log lists up to 5000 recent events when filtered; sessions last 12 hours
+and are not sliding; the login throttle is in memory and per process; the vault key is a single
+key with no rotation tool; masking in logs is exact-match only.
