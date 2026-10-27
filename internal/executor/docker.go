@@ -85,7 +85,16 @@ func dockerArgs(name string, s StepRun) ([]string, error) {
 	if workdir == "" {
 		workdir = WorkspaceMount
 	}
-	args := []string{"run", "--rm", "--name", name, "-w", workdir}
+	// no-new-privileges stops a process gaining privileges through setuid binaries, whatever
+	// the image does. It is on for every step; see docs/design/005-threat-model.md (T2).
+	args := []string{"run", "--rm", "--name", name, "--security-opt", "no-new-privileges", "-w", workdir}
+	switch s.Network {
+	case "", "egress":
+	case "none":
+		args = append(args, "--network", "none")
+	default:
+		return nil, fmt.Errorf("step %q: unknown network %q", s.ID, s.Network)
+	}
 	if s.Workspace != "" {
 		abs, err := filepath.Abs(s.Workspace)
 		if err != nil {

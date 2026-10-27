@@ -28,6 +28,9 @@ type StepRun struct {
 	Timeout time.Duration
 	// Workspace is the host directory mounted at /workspace.
 	Workspace string
+	// Network is "none" to run the step with no network at all. Empty or "egress" leaves the
+	// container's default network in place.
+	Network string
 	// Inputs are workspace-relative globs that make up the step's cache key. Real executors
 	// ignore them; the cache wrapper reads them.
 	Inputs []string

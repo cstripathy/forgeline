@@ -112,7 +112,10 @@ The API is in [design note 003](docs/design/003-control-plane.md): `POST /v1/run
 step graph, live logs and a cancel button. It asks for the same token and keeps it for that
 browser tab only.
 
-**Warning:** there is no sandbox beyond container defaults until milestone M3. Anyone with the
+**Warning:** there is almost no sandbox until milestone M3 is done. Each step can set
+`permissions: {network: none}` to run with no network at all, and every step runs with
+`no-new-privileges`; beyond that you get container defaults (root in the container, internet
+on, no resource limits). See [the threat model](docs/design/005-threat-model.md). Anyone with the
 token can run containers on the host, so keep the default loopback address or put the server
 behind TLS and a network you trust. Server runs do not use the step cache.
 

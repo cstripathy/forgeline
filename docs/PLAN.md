@@ -244,9 +244,25 @@ Steps O1 to O6 are listed there with how each is checked. It is blocked on three
 decisions at the end of that note (GitHub sign-in, how AWS changes are applied, which CI/CD path
 comes first). The GitHub webhook (step 11 above) is a prerequisite for O4 and for CI path 1.
 
-## After M2 (outline only)
+## M3: trust and sandbox model (in progress)
 
-- **M3 trust and sandbox model:** the differentiator. Write the threat model first, then
-  enforce permissions, then write tests that try to break them.
+Design: [docs/design/005-threat-model.md](design/005-threat-model.md), which lists 14 threats
+with their status, five slices, and three decisions for the maintainer.
 
-Details for M3 and later are intentionally not written yet. Plan them when M2 is done.
+- Threat model: written. Measured facts about a default step container are in it.
+- Slice 1, hardening and the network permission: **done.** `permissions.network: none|egress`
+  in the spec, enforced with Docker's `none` network; `--security-opt no-new-privileges` for
+  every step; the setting is part of the cache key (format version 2). Tests run real
+  containers against TCP, DNS, HTTP, the bridge gateway and the metadata address, plus a control
+  that the default keeps a network, and both protections were mutation-checked. The
+  `no-new-privileges` test checks the flag; it does not demonstrate a blocked escalation.
+- Slice 2, secrets scoped to steps: not started. Must use a private env file, not the docker
+  CLI's own environment (see the warning in the note).
+- Slice 3, trust of the run (untrusted runs get no secrets): not started.
+- Slice 4, audit log: not started.
+- Slice 5, resource limits and capability drop: not started; waits on a compatibility decision.
+
+## After M3 (outline only)
+
+M4 security gates, M5 progressive delivery, M6 AI agents and M7 migration are in the roadmap.
+Plan each when the one before it is done.

@@ -20,12 +20,18 @@ func TestDockerArgs(t *testing.T) {
 		want []string
 	}{
 		{"script with defaults", StepRun{ID: "a", Image: "alpine", Script: "echo hi", Workspace: "/ws"},
-			[]string{"run", "--rm", "--name", "n", "-w", "/workspace", "-v", "/ws:/workspace",
+			[]string{"run", "--rm", "--name", "n", "--security-opt", "no-new-privileges", "-w", "/workspace", "-v", "/ws:/workspace",
 				"--entrypoint", "sh", "alpine", "-c", "echo hi"}},
 		{"command with env and workdir", StepRun{ID: "a", Image: "golang", Command: []string{"go", "test", "./..."},
 			Env: map[string]string{"B": "2", "A": "1"}, WorkDir: "/src"},
-			[]string{"run", "--rm", "--name", "n", "-w", "/src", "-e", "A=1", "-e", "B=2",
+			[]string{"run", "--rm", "--name", "n", "--security-opt", "no-new-privileges", "-w", "/src", "-e", "A=1", "-e", "B=2",
 				"--entrypoint", "go", "golang", "test", "./..."}},
+		{"network none", StepRun{ID: "a", Image: "alpine", Script: "true", Network: "none"},
+			[]string{"run", "--rm", "--name", "n", "--security-opt", "no-new-privileges", "-w", "/workspace", "--network", "none",
+				"--entrypoint", "sh", "alpine", "-c", "true"}},
+		{"network egress is the default", StepRun{ID: "a", Image: "alpine", Script: "true", Network: "egress"},
+			[]string{"run", "--rm", "--name", "n", "--security-opt", "no-new-privileges", "-w", "/workspace",
+				"--entrypoint", "sh", "alpine", "-c", "true"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,9 +48,10 @@ func TestDockerArgs(t *testing.T) {
 
 func TestDockerArgsRejects(t *testing.T) {
 	for name, run := range map[string]StepRun{
-		"no image": {ID: "a", Script: "true"},
-		"neither":  {ID: "a", Image: "alpine"},
-		"both":     {ID: "a", Image: "alpine", Script: "true", Command: []string{"true"}},
+		"no image":        {ID: "a", Script: "true"},
+		"neither":         {ID: "a", Image: "alpine"},
+		"both":            {ID: "a", Image: "alpine", Script: "true", Command: []string{"true"}},
+		"unknown network": {ID: "a", Image: "alpine", Script: "true", Network: "host"},
 	} {
 		if _, err := dockerArgs("n", run); err == nil {
 			t.Errorf("%s: want error", name)
@@ -113,4 +120,70 @@ func TestDockerRunsRealContainer(t *testing.T) {
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("err = %v, want ErrTimeout", err)
 	}
+}
+
+// TestDockerSandboxProperties tries to break the isolation a step is promised, against a real
+// container. See docs/design/005-threat-model.md, threats T1 and T2.
+func TestDockerSandboxProperties(t *testing.T) {
+	dockerOrSkip(t)
+	image := os.Getenv("FORGELINE_DOCKER_TEST_IMAGE")
+	if image == "" {
+		image = "alpine:3.24"
+	}
+	run := func(network, script string) (int, string) {
+		t.Helper()
+		var logs bytes.Buffer
+		res, err := Docker{}.Run(context.Background(),
+			StepRun{ID: "sandbox", Image: image, Script: script, Network: network, Timeout: time.Minute}, &logs)
+		if err != nil {
+			t.Fatalf("network %q: %v\n%s", network, err, logs.String())
+		}
+		return res.ExitCode, logs.String()
+	}
+
+	t.Run("network none leaves only loopback", func(t *testing.T) {
+		code, out := run("none", `ls /sys/class/net`)
+		if code != 0 || strings.TrimSpace(out) != "lo" {
+			t.Fatalf("interfaces = %q (exit %d), want only lo", out, code)
+		}
+	})
+
+	t.Run("network none blocks every way out", func(t *testing.T) {
+		// Each attempt must fail. IPs avoid depending on DNS; the last one needs DNS.
+		script := `
+fail=0
+for target in 1.1.1.1:53 8.8.8.8:443 172.17.0.1:22 169.254.169.254:80; do
+  if nc -w 2 -z ${target%%:*} ${target##*:} 2>/dev/null; then echo "REACHED $target"; fail=1; fi
+done
+if nslookup -timeout=2 example.com >/dev/null 2>&1; then echo "RESOLVED example.com"; fail=1; fi
+if wget -q -T 2 -O /dev/null http://example.com 2>/dev/null; then echo "FETCHED example.com"; fail=1; fi
+echo done; exit $fail`
+		code, out := run("none", script)
+		if code != 0 {
+			t.Fatalf("a network:none step got out (exit %d):\n%s", code, out)
+		}
+	})
+
+	t.Run("the default keeps a network interface", func(t *testing.T) {
+		// A control, so the test above cannot pass because the container has no network anyway.
+		for _, network := range []string{"", "egress"} {
+			code, out := run(network, `ls /sys/class/net`)
+			if code != 0 || !strings.Contains(out, "eth0") {
+				t.Errorf("network %q: interfaces = %q, want eth0 present", network, out)
+			}
+		}
+	})
+
+	t.Run("no_new_privs is set for every step", func(t *testing.T) {
+		// This checks the setting, not an exploit: the kernel never lets a process clear the
+		// flag, and with it set an exec cannot gain privileges through setuid or file
+		// capabilities. A test that shows a blocked escalation needs a setuid binary that does
+		// not drop privileges itself (busybox does), which this image does not have.
+		for _, network := range []string{"", "none"} {
+			code, out := run(network, `grep NoNewPrivs /proc/self/status`)
+			if code != 0 || strings.TrimSpace(out) != "NoNewPrivs:\t1" {
+				t.Errorf("network %q: %q (exit %d), want NoNewPrivs 1", network, out, code)
+			}
+		}
+	})
 }

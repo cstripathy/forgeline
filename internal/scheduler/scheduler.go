@@ -170,6 +170,7 @@ func toStepRun(s *pipeline.Step, workspace string) (executor.StepRun, error) {
 	run := executor.StepRun{
 		ID: s.ID, Image: s.Image, Script: s.Run, Command: s.Command,
 		Env: s.Env, WorkDir: s.WorkDir, Workspace: workspace, Inputs: s.Inputs,
+		Network: s.Permissions.Network,
 	}
 	if s.Timeout != "" {
 		d, err := time.ParseDuration(s.Timeout)

@@ -92,6 +92,7 @@ func TestKeyChangesWithEachComponent(t *testing.T) {
 		"env":     func(s *executor.StepRun) { s.Env = map[string]string{"A": "1"} },
 		"workdir": func(s *executor.StepRun) { s.WorkDir = "/src" },
 		"inputs":  func(s *executor.StepRun) { s.Inputs = []string{"src", "other"} },
+		"network": func(s *executor.StepRun) { s.Network = "none" },
 	}
 	for name, mutate := range mutations {
 		m := baseRun(ws)
@@ -116,6 +117,17 @@ func TestKeyChangesWithEachComponent(t *testing.T) {
 	write(t, ws, "src/a.txt", "two")
 	if k, _ := Key(baseRun(ws)); k == base {
 		t.Error("changing an input file did not change the key")
+	}
+}
+
+func TestKeyTreatsDefaultNetworkAsEgress(t *testing.T) {
+	ws := t.TempDir()
+	a, b := baseRun(ws), baseRun(ws)
+	b.Network = "egress"
+	ka, _ := Key(a)
+	kb, _ := Key(b)
+	if ka != kb {
+		t.Fatal("an empty network and an explicit egress should hash the same")
 	}
 }
 

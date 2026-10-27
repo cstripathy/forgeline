@@ -125,6 +125,12 @@ func (p *Pipeline) Validate() error {
 			}
 		}
 
+		switch s.Permissions.Network {
+		case "", NetworkNone, NetworkEgress:
+		default:
+			add(path+".permissions.network", "must be %q or %q, got %q", NetworkNone, NetworkEgress, s.Permissions.Network)
+		}
+
 		if s.Timeout != "" {
 			d, err := time.ParseDuration(s.Timeout)
 			switch {

@@ -17,7 +17,7 @@ import (
 )
 
 // FormatVersion changes whenever the key definition does, so old records stop matching.
-const FormatVersion = "1"
+const FormatVersion = "2" // 2: the network permission joined the key
 
 // Key computes the cache key for a step, as defined in docs/design/002-spec-extensions.md.
 // It reads the input files now, so call it just before the step would run.
@@ -44,6 +44,13 @@ func Key(s executor.StepRun) (string, error) {
 		field(h, "env", k)
 		field(h, "val", s.Env[k])
 	}
+
+	// A step cut off from the network can compute something different from one that is not.
+	network := s.Network
+	if network == "" {
+		network = pipeline.NetworkEgress
+	}
+	field(h, "network", network)
 
 	workdir := s.WorkDir
 	if workdir == "" {

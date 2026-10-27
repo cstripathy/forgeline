@@ -80,7 +80,7 @@ Status is one of **open** (nothing prevents it), **partly** (reduced, with the g
 | --- | --- | --- | --- | --- |
 | T1 | A step sends source code or secrets to the internet, or calls internal services | **open**: network is on for every step | Per-step `permissions.network` of `none` or `egress`; default is an open decision | A `network: none` step tries TCP, DNS and the Docker bridge gateway; all must fail |
 | T2 | A step abuses privileges inside or out of its container | **open**: root, 14 capabilities, `no_new_privileges` off | `no-new-privileges` for every step now; capability drop, PID and memory limits proposed (see decisions) | A step reads `NoNewPrivs`, tries to regain capabilities and to write outside the workspace |
-| T3 | A secret leaks through the process list, `docker inspect`, or logs | **open**: env is in argv; no secrets feature yet | Secrets only for steps that declare them; never in argv; masked in logs | A step prints its secret and a second process lists processes; neither may show the value |
+| T3 | A secret leaks through the process list, `docker inspect`, or logs | **open**: env is in argv; no secrets feature yet | Secrets only for steps that declare them; passed in a private env file, not argv; masked in logs | A step prints its secret and a second process lists processes; neither may show the value |
 | T4 | **Untrusted input, secrets and an external action in one step** (the prompt-injection pattern) | **open**: there are no secrets yet, so no combination exists to forbid | A run started from untrusted input gets no secrets; a step must declare each of the three before it may combine them | An untrusted run asks for a secret and must be refused before any container starts |
 | T5 | Hostile code in a pull request runs on the host | **partly**: fork PRs are ignored; same-repository PRs run with the writer's trust | Mark pull request runs untrusted for T4; keep the allow list | A fork PR payload is ignored (handled); a same-repo PR run gets no secrets (planned) |
 | T6 | A forged or replayed webhook | **partly**: signature is checked (handled); a captured valid delivery can be replayed after a restart | Optional: bind deliveries to a time window | Tampered, unsigned and wrongly signed bodies are rejected (handled) |
@@ -98,13 +98,19 @@ Status is one of **open** (nothing prevents it), **partly** (reduced, with the g
 Each slice is a small step that ends with `make ci` and the breaking tests above. They are in
 order of value for effort.
 
-1. **Hardening and the network permission (T1, T2, T3 partly).** Add a minimal `permissions`
-   block to a step with only `network: none | egress`, enforce `none` with Docker's `none`
-   network, add `no-new-privileges` for every step, and stop putting env values in argv. Only
-   the field that is enforced is added to the spec; the rest stay reserved as note 002 says.
+1. **Hardening and the network permission (T1, T2).** Add a minimal `permissions` block to a
+   step with only `network: none | egress`, enforce `none` with Docker's `none` network, and add
+   `no-new-privileges` for every step. Only the field that is enforced is added to the spec;
+   the rest stay reserved as note 002 says. Env passing is left alone in this slice on purpose
+   (see the warning under slice 2).
 2. **Secrets scoped to steps (T3).** `permissions.secrets` lists names. Values come from the
    server's configuration, never from the pipeline file. A step receives only what it lists;
-   values are masked in stored logs and absent from argv.
+   values are masked in stored logs and absent from argv. **How they are passed matters:** the
+   obvious fix for "values are visible in argv" is to put them in the environment of the
+   `docker` process and use `-e NAME`. That is wrong on a server, because a pipeline's own `env`
+   would then be read by the docker CLI itself (`DOCKER_HOST`, `DOCKER_CONFIG`, proxy variables),
+   changing where and how it runs steps. Values go in a private `--env-file` instead, and a test
+   sets `DOCKER_HOST` in a step's env to prove it does not reach the CLI.
 3. **Trust of the run (T4, T5).** Each run is `trusted` or `untrusted` by how it started. An
    untrusted run is refused any secret. Combining secrets with network egress in one step
    requires both to be declared, and the combination is written to the audit log.

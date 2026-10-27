@@ -60,22 +60,29 @@ Known limits, stated rather than hidden:
 Not added. The M1 sample pipeline passes data between steps through the shared workspace,
 so declared outputs are not needed. Revisit with artifact storage in M2.
 
-## Reserved for M3, not implemented, not enforced
+## Permissions: one field enforced, the rest reserved for M3
 
-These names are reserved. The loader rejects unknown fields, so a pipeline that uses them
-fails to load today. That is intentional: a permission that parses but is ignored would give
-false confidence.
+The threat model is in [005](005-threat-model.md). Only a permission that is enforced is added
+to the types; the loader rejects unknown fields, so a reserved name fails to load. That is
+intentional: a permission that parses but is ignored would give false confidence.
 
 ```yaml
-permissions:            # reserved
-  secrets: [NAME, ...]  # secrets the step may read
-  network: none|egress  # default would be none
-  untrusted_input: false # whether the step may receive untrusted input
+permissions:
+  network: none|egress   # IMPLEMENTED (M3 slice 1): none runs the step with no network at all
+  secrets: [NAME, ...]   # reserved: secrets the step may read
+  untrusted_input: false # reserved: whether the step may receive untrusted input
 ```
 
+`network: none` is enforced with Docker's `none` network and is covered by tests that try TCP,
+DNS, HTTP, the bridge gateway and the cloud metadata address from inside a real container.
+**The default when `network` is omitted is `egress`**, which keeps existing pipelines working.
+An earlier sketch of this note said the default would be `none`; whether to flip it is an open
+decision in note 005, and the spec is alpha, so it is cheapest to change now. The setting is
+part of the cache key.
+
 Intended rule, from the trust model: a step must never combine untrusted input, secrets, and
-external actions unless each is declared and granted. Enforcement, defaults, and the
-threat model come with M3. Until then Forgeline provides **no** permission enforcement.
+external actions unless each is declared and granted. Secrets and the combination rule are
+slices 2 and 3 in note 005 and are **not enforced yet**.
 
 ## What is implemented versus reserved
 
@@ -84,4 +91,5 @@ threat model come with M3. Until then Forgeline provides **no** permission enfor
 | `steps[].inputs` and its validation | Implemented in the Go types and generated schema |
 | Cache key definition above | Defined here, implemented in M1 step 6 |
 | `outputs` | Deferred |
-| `permissions.*` | Reserved, rejected by the loader, not enforced |
+| `permissions.network` | Implemented and enforced for `none` (M3 slice 1) |
+| `permissions.secrets`, `permissions.untrusted_input` | Reserved, rejected by the loader, not enforced |

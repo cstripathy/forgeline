@@ -1,5 +1,19 @@
 {
   "$defs": {
+    "Permissions": {
+      "additionalProperties": false,
+      "properties": {
+        "network": {
+          "description": "Outbound network access: none cuts the step off from every network, egress allows it. Empty means egress for now.",
+          "enum": [
+            "none",
+            "egress"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "Step": {
       "additionalProperties": false,
       "oneOf": [
@@ -54,6 +68,10 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "permissions": {
+          "$ref": "#/$defs/Permissions",
+          "description": "What the step is allowed to do. See docs/design/005-threat-model.md."
         },
         "run": {
           "description": "Shell script to run. Set this or command, not both.",
