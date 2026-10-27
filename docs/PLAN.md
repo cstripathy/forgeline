@@ -256,8 +256,17 @@ with their status, five slices, and three decisions for the maintainer.
   containers against TCP, DNS, HTTP, the bridge gateway and the metadata address, plus a control
   that the default keeps a network, and both protections were mutation-checked. The
   `no-new-privileges` test checks the flag; it does not demonstrate a blocked escalation.
-- Slice 2, secrets scoped to steps: not started. Must use a private env file, not the docker
-  CLI's own environment (see the warning in the note).
+- Slice 2, secrets scoped to steps: **done.** `permissions.secrets: [NAME]`; values from
+  `FORGELINE_SECRET_<NAME>` in the environment of `forgeline server` or `forgeline run`
+  (new packages `internal/secrets` and `internal/redact`). Values go in a private
+  `--env-file`, never argv or the docker CLI's environment; every configured value is masked in
+  logs, including when split across writes; a step with secrets is never cached; a missing
+  secret fails the step by name before a container starts. Runs started by GitHub get no
+  secrets until slice 3. Tests run real containers (exact values with quotes, `$` and `=`,
+  a hostile `DOCKER_HOST` in step env that must not reach the CLI, and a process-list check
+  while the step runs); nine mutations of the protections were each caught. **Not covered:**
+  masking of transformed values (base64, split output), a secret in plain `env`, and any
+  secret store other than process environment variables.
 - Slice 3, trust of the run (untrusted runs get no secrets): not started.
 - Slice 4, audit log: not started.
 - Slice 5, resource limits and capability drop: not started; waits on a compatibility decision.

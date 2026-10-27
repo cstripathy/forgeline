@@ -87,3 +87,18 @@ yourself. Run history lives on the instance's disk and is deleted with it.
 ## Updating
 
 Instances are replaced, not patched: create a new stack with a new `GitRef`, then delete the old one.
+
+## Secrets for steps
+
+A step can request a secret with `permissions: {secrets: [NAME]}`. The value is read from
+`FORGELINE_SECRET_NAME` in the server's environment. On this deployment the service loads
+`/etc/forgeline/env`, so add a line there as root (through Session Manager) and restart:
+
+```sh
+echo 'FORGELINE_SECRET_NPM_TOKEN=...' | sudo tee -a /etc/forgeline/env >/dev/null
+sudo systemctl restart forgeline
+```
+
+The value stays on the instance's disk in that file (mode 0600 is worth checking), so this is
+fine for a throwaway demo and not a secret store. Runs started by a GitHub webhook receive no
+secrets yet. See `docs/design/002-spec-extensions.md` for the rules.

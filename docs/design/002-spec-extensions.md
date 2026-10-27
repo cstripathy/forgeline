@@ -52,7 +52,7 @@ Known limits, stated rather than hidden:
 - File mode and symlink targets are not hashed in M1. Only paths and contents are.
 - Anything a step reads outside its declared `inputs` (network, files in the image, time)
   is invisible to the key.
-- Env values are hashed, not stored. Do not put secrets in `env`; M3 adds a proper path.
+- Env values are hashed, not stored. Do not put secrets in `env`; use `permissions.secrets`.
 - Only success is recorded. Cached steps do not replay logs in M1.
 
 ## Deferred: `outputs`
@@ -69,7 +69,7 @@ intentional: a permission that parses but is ignored would give false confidence
 ```yaml
 permissions:
   network: none|egress   # IMPLEMENTED (M3 slice 1): none runs the step with no network at all
-  secrets: [NAME, ...]   # reserved: secrets the step may read
+  secrets: [NAME, ...]   # IMPLEMENTED (M3 slice 2): secrets the step receives as env variables
   untrusted_input: false # reserved: whether the step may receive untrusted input
 ```
 
@@ -80,9 +80,25 @@ An earlier sketch of this note said the default would be `none`; whether to flip
 decision in note 005, and the spec is alpha, so it is cheapest to change now. The setting is
 part of the cache key.
 
+`secrets: [NAME]` gives the step an environment variable `NAME` whose value comes from the
+process that runs the step, set as `FORGELINE_SECRET_NAME` (at least 8 characters, no newline).
+Values are never in a pipeline, a run record, a cache entry or an API response. Rules:
+
+- A step receives only the secrets it lists. A listed secret that is not configured fails that
+  step before any container starts, naming the secret and the variable to set.
+- A name cannot be in both `env` and `secrets`.
+- Values reach the container in a private `--env-file` (mode 0600, removed afterwards), not in
+  argv and not in the `docker` CLI's own environment.
+- Every configured value is masked as `***` in every step's stored and streamed output. Masking
+  is exact-match: a transformed value (base64, split, reversed) is not caught. It limits
+  accidents; the boundary is that a step only holds what it lists.
+- A step that receives secrets is never cached.
+- Runs started by a GitHub webhook receive no secrets yet; a step in such a run that lists one
+  fails with that reason. Which runs are trusted is slice 3 in note 005.
+
 Intended rule, from the trust model: a step must never combine untrusted input, secrets, and
-external actions unless each is declared and granted. Secrets and the combination rule are
-slices 2 and 3 in note 005 and are **not enforced yet**.
+external actions unless each is declared and granted. The combination rule is slice 3 in note
+005 and is **not enforced yet**.
 
 ## What is implemented versus reserved
 
@@ -92,4 +108,5 @@ slices 2 and 3 in note 005 and are **not enforced yet**.
 | Cache key definition above | Defined here, implemented in M1 step 6 |
 | `outputs` | Deferred |
 | `permissions.network` | Implemented and enforced for `none` (M3 slice 1) |
-| `permissions.secrets`, `permissions.untrusted_input` | Reserved, rejected by the loader, not enforced |
+| `permissions.secrets` | Implemented (M3 slice 2) |
+| `permissions.untrusted_input` | Reserved, rejected by the loader, not enforced |
