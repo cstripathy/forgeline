@@ -12,6 +12,8 @@ import (
 
 	"github.com/cstripathy/forgeline/internal/executor"
 	"github.com/cstripathy/forgeline/internal/pipeline"
+	"github.com/cstripathy/forgeline/internal/redact"
+	"github.com/cstripathy/forgeline/internal/secrets"
 )
 
 // Status is the outcome of one step.
@@ -63,6 +65,14 @@ type Options struct {
 	// own writer, but steps run concurrently, so a shared underlying writer must be safe
 	// for concurrent use.
 	Logs func(stepID string) io.Writer
+	// Secrets are the values steps may request through permissions.secrets, by name. A step
+	// receives only the ones it lists. Every value here is masked in every step's output,
+	// including the ones that step did not request.
+	Secrets map[string]string
+	// SecretsDenied, if not empty, refuses every step that requests a secret and says why.
+	// The run still executes steps that request none. Use it for runs that must not hold
+	// secrets, such as ones started by untrusted input.
+	SecretsDenied string
 	// OnStepStart, if set, is called just before a step is handed to the executor.
 	OnStepStart func(stepID string)
 	// OnStepDone, if set, is called once for every step with its final result, including
@@ -140,9 +150,17 @@ func runStep(ctx context.Context, s *pipeline.Step, ex executor.Executor, opts O
 	if err != nil {
 		return StepResult{ID: s.ID, Status: StatusFailed, Err: err}
 	}
+	if run.Secrets, err = grantSecrets(s, opts); err != nil {
+		return StepResult{ID: s.ID, Status: StatusFailed, Err: err}
+	}
 	var logs io.Writer = io.Discard
 	if opts.Logs != nil {
 		logs = opts.Logs(s.ID)
+	}
+	if len(opts.Secrets) > 0 {
+		masked := redact.New(logs, secrets.Values(opts.Secrets))
+		logs = masked
+		defer masked.Close() // releases output held back in case it was the start of a value
 	}
 
 	if opts.OnStepStart != nil {
@@ -164,6 +182,27 @@ func runStep(ctx context.Context, s *pipeline.Step, ex executor.Executor, opts O
 		out.Status = StatusSucceeded
 	}
 	return out
+}
+
+// grantSecrets returns the secrets the step asked for, or an error that names what is wrong.
+// Errors name secrets, never values.
+func grantSecrets(s *pipeline.Step, opts Options) (map[string]string, error) {
+	names := s.Permissions.Secrets
+	if len(names) == 0 {
+		return nil, nil
+	}
+	if opts.SecretsDenied != "" {
+		return nil, fmt.Errorf("step requests secrets (%s) but %s", strings.Join(names, ", "), opts.SecretsDenied)
+	}
+	granted := make(map[string]string, len(names))
+	for _, n := range names {
+		v, ok := opts.Secrets[n]
+		if !ok {
+			return nil, fmt.Errorf("secret %q is not configured; set %s%s in the environment of the process that runs steps", n, secrets.Prefix, n)
+		}
+		granted[n] = v
+	}
+	return granted, nil
 }
 
 func toStepRun(s *pipeline.Step, workspace string) (executor.StepRun, error) {

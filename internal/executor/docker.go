@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -28,7 +31,12 @@ func (d Docker) Run(ctx context.Context, s StepRun, logs io.Writer) (Result, err
 	if err != nil {
 		return Result{}, err
 	}
-	args, err := dockerArgs(name, s)
+	envFile, cleanup, err := writeSecretsFile(s)
+	if err != nil {
+		return Result{}, err
+	}
+	defer cleanup()
+	args, err := dockerArgs(name, s, envFile)
 	if err != nil {
 		return Result{}, err
 	}
@@ -72,9 +80,53 @@ func containerName() (string, error) {
 	return "forgeline-" + hex.EncodeToString(b[:]), nil
 }
 
+// secretNameRE is the shape of an environment variable name. The executor checks it again
+// because it is the last line of defence before a name becomes a line in a file.
+var secretNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// writeSecretsFile writes the step's secrets as NAME=value lines to a file only the current
+// user can read, and returns its path and a function that removes it. With no secrets it
+// returns an empty path and a no-op.
+//
+// A file is used instead of `-e NAME=value` so values are not in the docker process's argv,
+// and instead of `-e NAME` with the values in the docker process's environment so that no
+// step-controlled setting (DOCKER_HOST, DOCKER_CONFIG, proxy variables) can reach the docker
+// CLI itself. Errors name the secret, never its value.
+func writeSecretsFile(s StepRun) (string, func(), error) {
+	if len(s.Secrets) == 0 {
+		return "", func() {}, nil
+	}
+	names := make([]string, 0, len(s.Secrets))
+	for n, v := range s.Secrets {
+		if !secretNameRE.MatchString(n) {
+			return "", nil, fmt.Errorf("step %q: invalid secret name %q", s.ID, n)
+		}
+		if strings.ContainsAny(v, "\n\r\x00") {
+			return "", nil, fmt.Errorf("step %q: secret %q contains a newline or NUL byte, which an env file cannot carry", s.ID, n)
+		}
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	dir, err := os.MkdirTemp("", "forgeline-secrets-") // mode 0700
+	if err != nil {
+		return "", nil, fmt.Errorf("step %q: preparing secrets: %w", s.ID, err)
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	var b strings.Builder
+	for _, n := range names {
+		b.WriteString(n + "=" + s.Secrets[n] + "\n")
+	}
+	path := filepath.Join(dir, "env")
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("step %q: preparing secrets: %w", s.ID, err)
+	}
+	return path, cleanup, nil
+}
+
 // dockerArgs builds the arguments after `docker`. It is separate from Run so it can be tested
-// without Docker.
-func dockerArgs(name string, s StepRun) ([]string, error) {
+// without Docker. envFile is the path from writeSecretsFile, or "".
+func dockerArgs(name string, s StepRun, envFile string) ([]string, error) {
 	if s.Image == "" {
 		return nil, fmt.Errorf("step %q: image is required", s.ID)
 	}
@@ -109,6 +161,9 @@ func dockerArgs(name string, s StepRun) ([]string, error) {
 	sort.Strings(keys) // stable argument order
 	for _, k := range keys {
 		args = append(args, "-e", k+"="+s.Env[k])
+	}
+	if envFile != "" {
+		args = append(args, "--env-file", envFile)
 	}
 	if s.Script != "" {
 		args = append(args, "--entrypoint", "sh", s.Image, "-c", s.Script)

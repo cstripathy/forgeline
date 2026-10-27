@@ -215,3 +215,37 @@ func TestExecutorNeverCachesStepsWithoutInputs(t *testing.T) {
 		t.Fatalf("ran %d times, want 2", n)
 	}
 }
+
+func TestExecutorNeverCachesStepsWithSecrets(t *testing.T) {
+	ws := t.TempDir()
+	dir := filepath.Join(ws, ".forgeline", "cache")
+	fake := &executor.Fake{}
+	ex := Executor{Next: fake, Store: &Store{Dir: dir}}
+	s := baseRun(ws) // has inputs, so it would be cached without secrets
+	s.Secrets = map[string]string{"TOKEN": "tok-12345678"}
+	for i := 0; i < 2; i++ {
+		if res, _ := ex.Run(context.Background(), s, io.Discard); res.Cached {
+			t.Fatal("step with secrets was served from cache")
+		}
+	}
+	if n := len(fake.Calls()); n != 2 {
+		t.Fatalf("ran %d times, want 2", n)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("a step with secrets left cache entries: %v", entries)
+	}
+}
+
+// The key must never absorb secret values: a stored hash of a low-entropy secret can be
+// guessed offline. Steps with secrets skip the cache entirely, so this is a second guard.
+func TestKeyIgnoresSecrets(t *testing.T) {
+	ws := t.TempDir()
+	a, b := baseRun(ws), baseRun(ws)
+	a.Secrets = map[string]string{"TOKEN": "value-one-1234"}
+	b.Secrets = map[string]string{"TOKEN": "value-two-5678"}
+	ka, _ := Key(a)
+	kb, _ := Key(b)
+	if ka != kb {
+		t.Fatal("the cache key depends on secret values")
+	}
+}

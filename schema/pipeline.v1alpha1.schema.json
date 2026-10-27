@@ -10,6 +10,14 @@
             "egress"
           ],
           "type": "string"
+        },
+        "secrets": {
+          "description": "Names of the secrets this step receives as environment variables. Values come from the server or the local environment (FORGELINE_SECRET_\u003cNAME\u003e), never from the pipeline file. A step gets only what it lists.",
+          "items": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "type": "object"

@@ -131,6 +131,22 @@ func (p *Pipeline) Validate() error {
 			add(path+".permissions.network", "must be %q or %q, got %q", NetworkNone, NetworkEgress, s.Permissions.Network)
 		}
 
+		seenSecrets := make(map[string]bool, len(s.Permissions.Secrets))
+		for j, name := range s.Permissions.Secrets {
+			spath := fmt.Sprintf("%s.permissions.secrets[%d]", path, j)
+			switch {
+			case !envNameRE.MatchString(name):
+				add(spath, "invalid secret name %q", name)
+			case seenSecrets[name]:
+				add(spath, "duplicate secret %q", name)
+			default:
+				if _, clash := s.Env[name]; clash {
+					add(spath, "secret %q is also set in env; a name can only come from one place", name)
+				}
+			}
+			seenSecrets[name] = true
+		}
+
 		if s.Timeout != "" {
 			d, err := time.ParseDuration(s.Timeout)
 			switch {

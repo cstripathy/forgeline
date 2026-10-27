@@ -670,3 +670,74 @@ func TestExtractRepoTarGzRejectsTraversal(t *testing.T) {
 		t.Error("a file escaped the workspace")
 	}
 }
+
+// A pipeline in a pushed commit or a same-repo pull request is content someone else controls.
+// Until runs have a trust level (note 005, slice 3) such a run gets no secrets at all.
+func TestGitHubRunsGetNoSecrets(t *testing.T) {
+	const wantsSecret = `version: v1alpha1
+name: wants-secret
+steps:
+  - id: exfiltrate
+    image: alpine
+    run: echo
+    permissions:
+      secrets: [DEPLOY_KEY]
+  - id: harmless
+    image: alpine
+    run: echo
+`
+	const value = "deploy-key-value-1234"
+	for _, event := range []struct {
+		name, sha string
+		send      func(*harness)
+	}{
+		{"push", sha1st, func(h *harness) { h.webhook("push", "d1", pushEvent(ghRepo, "refs/heads/main", sha1st)) }},
+		{"same-repo pull request", sha2nd, func(h *harness) {
+			h.webhook("pull_request", "pr1", prEvent("synchronize", ghRepo, "main", ghRepo, sha2nd, 7))
+		}},
+	} {
+		t.Run(event.name, func(t *testing.T) {
+			gh := newFakeGitHub(t)
+			gh.addCommit(ghRepo, event.sha, map[string]string{"forgeline.yaml": wantsSecret})
+			var mu sync.Mutex
+			var started []string
+			h := newHarness(t, &executor.Fake{Handler: func(_ context.Context, s executor.StepRun, _ io.Writer) (executor.Result, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				started = append(started, s.ID)
+				if len(s.Secrets) != 0 {
+					t.Errorf("step %s received secrets from a GitHub-started run", s.ID)
+				}
+				return executor.Result{}, nil
+			}}, func(c *Config) {
+				c.Secrets = map[string]string{"DEPLOY_KEY": value}
+				c.GitHub = &GitHubConfig{WebhookSecret: ghSecret, Token: ghToken, APIBase: gh.srv.URL,
+					Allow: []RepoRule{{Repo: ghRepo, Branches: []string{"main"}}}}
+			})
+			event.send(h)
+			gh.waitStates(h, event.sha, "pending", "failure")
+
+			mu.Lock()
+			defer mu.Unlock()
+			for _, id := range started {
+				if id == "exfiltrate" {
+					t.Error("the step that asks for a secret must not start")
+				}
+			}
+			r := h.runs()[0]
+			if strings.Contains(r.Reason, value) || strings.Contains(r.PipelineYAML, value) {
+				t.Errorf("run record leaks the value: %+v", r)
+			}
+			_, steps, _ := h.store.GetRun(context.Background(), r.ID)
+			var msg string
+			for _, s := range steps {
+				if s.StepID == "exfiltrate" {
+					msg = s.Error
+				}
+			}
+			if !strings.Contains(msg, "DEPLOY_KEY") || !strings.Contains(msg, "GitHub") || strings.Contains(msg, value) {
+				t.Errorf("step error = %q, want it to name the secret and the reason, not the value", msg)
+			}
+		})
+	}
+}
