@@ -118,8 +118,39 @@ behind TLS and a network you trust. Server runs do not use the step cache.
 
 Status: run on real Docker on 2026-10-21 (Amazon Linux 2023 on arm64, Docker, Alpine 3.24): the
 example ran, a second run was served from cache, and changing `src/a.txt` re-ran only `shout-a`
-and `combine`. The same example also passed through `forgeline server`. Not tried on macOS,
-Windows, x86, Podman, or a rootless Docker setup.
+and `combine`. The same example also passed through `forgeline server`. On 2026-10-27 the server
+was also run on x86_64 Linux (Ubuntu 24.04 on WSL2, Docker 29, Postgres 18): success, a failing
+step with skipped dependents, a step timeout, and cancel, all against real containers, and the
+web UI was checked in a browser. Not tried on macOS, Windows, Podman, or a rootless Docker setup.
+
+### Trigger runs from GitHub
+
+```
+export FORGELINE_GITHUB_WEBHOOK_SECRET=...   # 16+ characters; the same value goes in the webhook
+export FORGELINE_GITHUB_TOKEN=...            # fine-grained token: Contents read, Commit statuses write
+./bin/forgeline server --public-url https://ci.example.com \
+    --github-allow yourname/yourrepo:main,release/*
+```
+
+Then add a webhook to the repository: payload URL `https://ci.example.com/webhooks/github`,
+content type `application/json`, your secret, and the **push** and **pull request** events.
+GitHub has to reach the server, so run it behind TLS (a reverse proxy or a tunnel); the server
+itself speaks plain HTTP. The repository needs a `forgeline.yaml` at its root.
+
+On a push to an allowed branch, or a pull request into one, the server downloads that commit,
+runs the pipeline, and reports a commit status named `forgeline`: `pending` when queued, then
+`success` or `failure`, with a link to the run. A problem before a run exists (commit not
+downloadable, no pipeline file, invalid pipeline) is reported as an `error` status. The
+signature is checked before anything else. Limits to know:
+
+- Only repositories and branches in `--github-allow` can start runs, and pull requests from
+  forks never do. Until M3 there is no sandbox, so allow only repositories whose writers you
+  would trust with a shell on the host.
+- Symlinks in the repository are not checked out; a step that needs one will not find it.
+- The step cache is not used for server runs, as above.
+- A run interrupted by a server restart is reported as `failure`; the delivery is not retried.
+- Tested against a stand-in GitHub API and a real GitHub tarball, not against real webhook
+  deliveries and real commit statuses.
 
 ## License
 

@@ -3,6 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,12 +35,19 @@ func (s *syncBuffer) String() string { s.mu.Lock(); defer s.mu.Unlock(); return 
 // startServer runs `forgeline server` on a free port and returns its URL.
 func startServer(t *testing.T, ex executor.Executor, env map[string]string) string {
 	t.Helper()
+	return startServerWith(t, ex, env)
+}
+
+// startServerWith is startServer with extra command-line arguments.
+func startServerWith(t *testing.T, ex executor.Executor, env map[string]string, extra ...string) string {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	var out, errb syncBuffer
 	done := make(chan int, 1)
 	getenv := func(k string) string { return env[k] }
 	go func() {
-		done <- runServer(ctx, []string{"--listen", "127.0.0.1:0", "--data-dir", t.TempDir()}, &out, &errb, ex, getenv)
+		args := append([]string{"--listen", "127.0.0.1:0", "--data-dir", t.TempDir()}, extra...)
+		done <- runServer(ctx, args, &out, &errb, ex, getenv)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -169,5 +180,73 @@ func TestServerGeneratesTokenOnLoopbackOnly(t *testing.T) {
 		&executor.Fake{}, func(string) string { return "" })
 	if code != 1 || !strings.Contains(err2.String(), "FORGELINE_TOKEN is required") {
 		t.Errorf("non-loopback without token: exit %d, stderr %q", code, err2.String())
+	}
+}
+
+func TestServerGitHubFlags(t *testing.T) {
+	const secret = "webhook-secret-0123456789"
+	env := map[string]string{
+		"FORGELINE_TOKEN": cliToken, "FORGELINE_GITHUB_WEBHOOK_SECRET": secret, "FORGELINE_GITHUB_TOKEN": "gh-token",
+	}
+	url := startServerWith(t, &executor.Fake{}, env,
+		"--github-allow", "acme/widgets:main,release/*", "--github-allow", "acme/gadgets:main", "--public-url", "https://ci.example.com")
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	body := []byte(`{"zen":"x"}`)
+	mac.Write(body)
+	post := func(sig string) int {
+		req, _ := http.NewRequest("POST", url+"/webhooks/github", bytes.NewReader(body))
+		req.Header.Set("X-GitHub-Event", "ping")
+		req.Header.Set("X-Hub-Signature-256", sig)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if got := post("sha256=" + hex.EncodeToString(mac.Sum(nil))); got != http.StatusOK {
+		t.Errorf("signed ping = %d, want 200", got)
+	}
+	if got := post("sha256=00"); got != http.StatusUnauthorized {
+		t.Errorf("badly signed ping = %d, want 401", got)
+	}
+}
+
+func TestServerGitHubConfigErrors(t *testing.T) {
+	run := func(env map[string]string, args ...string) (int, string) {
+		var out, errb bytes.Buffer
+		code := runServer(context.Background(), append([]string{"--listen", "127.0.0.1:0", "--data-dir", t.TempDir()}, args...),
+			&out, &errb, &executor.Fake{}, func(k string) string { return env[k] })
+		return code, errb.String()
+	}
+	base := map[string]string{"FORGELINE_TOKEN": cliToken}
+	with := func(kv ...string) map[string]string {
+		m := map[string]string{"FORGELINE_TOKEN": cliToken}
+		for i := 0; i < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return m
+	}
+	tests := []struct {
+		name string
+		env  map[string]string
+		args []string
+		code int
+		want string
+	}{
+		{"secret without allow list", with("FORGELINE_GITHUB_WEBHOOK_SECRET", "webhook-secret-0123456789"), nil, 2, "--github-allow"},
+		{"allow list without secret", base, []string{"--github-allow", "a/b:main"}, 1, "webhook secret"},
+		{"allow list without token", with("FORGELINE_GITHUB_WEBHOOK_SECRET", "webhook-secret-0123456789"), []string{"--github-allow", "a/b:main"}, 1, "token is required"},
+		{"malformed allow value", base, []string{"--github-allow", "a/b"}, 2, "owner/repo:branch"},
+		{"bad repo name", with("FORGELINE_GITHUB_WEBHOOK_SECRET", "webhook-secret-0123456789", "FORGELINE_GITHUB_TOKEN", "t"), []string{"--github-allow", "nope:main"}, 1, "owner/name"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, errs := run(tt.env, tt.args...)
+			if code != tt.code || !strings.Contains(errs, tt.want) {
+				t.Errorf("exit %d, stderr %q; want exit %d mentioning %q", code, errs, tt.code, tt.want)
+			}
+		})
 	}
 }

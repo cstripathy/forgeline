@@ -43,7 +43,9 @@ type Config struct {
 	// LogPollInterval is how often a live log stream checks the store for new output.
 	// Zero means 250 ms.
 	LogPollInterval time.Duration
-	Logger          *slog.Logger
+	// GitHub, if set, enables POST /webhooks/github and commit status reporting.
+	GitHub *GitHubConfig
+	Logger *slog.Logger
 }
 
 // Server serves the API and runs queued pipelines.
@@ -57,8 +59,12 @@ type Server struct {
 	ctls          map[string]*runCtl
 	pendingCancel map[string]bool
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cancel  context.CancelFunc
+	baseCtx context.Context // ends when the server stops; set by Start
+	wg      sync.WaitGroup
+
+	deliveries deliveryLog
+	checkouts  chan struct{} // bounds GitHub downloads in flight
 }
 
 // New validates cfg, prepares the data directory and returns a Server. Call Start to begin
@@ -97,22 +103,47 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	cfg.DataDir = abs
+	if cfg.GitHub != nil {
+		gh := *cfg.GitHub // validation fills defaults; do not change the caller's copy
+		if err := validateGitHub(&gh); err != nil {
+			return nil, fmt.Errorf("server: %w", err)
+		}
+		cfg.GitHub = &gh
+	}
 	for _, d := range []string{"runs", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(cfg.DataDir, d), 0o755); err != nil {
 			return nil, fmt.Errorf("server: preparing data dir: %w", err)
 		}
 	}
-	return &Server{
+	srv := &Server{
 		cfg: cfg, log: cfg.Logger,
 		wake:          make(chan struct{}, cfg.MaxRuns),
 		ctls:          map[string]*runCtl{},
 		pendingCancel: map[string]bool{},
-	}, nil
+	}
+	if cfg.GitHub != nil {
+		srv.checkouts = make(chan struct{}, cfg.GitHub.MaxCheckouts)
+	}
+	return srv, nil
 }
 
 // Start marks runs interrupted by a previous crash as failed, then starts the workers. It
 // returns once the workers are running. Stop waits for them.
 func (s *Server) Start(ctx context.Context) error {
+	// Commit statuses of interrupted GitHub runs would stay "pending" forever, so note which
+	// runs are about to be failed before failing them.
+	var interrupted []store.Run
+	if s.cfg.GitHub != nil {
+		recent, err := s.cfg.Store.ListRuns(ctx, store.ListOptions{Limit: 200})
+		if err != nil {
+			return fmt.Errorf("recovering interrupted runs: %w", err)
+		}
+		for _, r := range recent {
+			if r.Status == store.RunRunning && r.Trigger == store.TriggerGitHub {
+				interrupted = append(interrupted, r)
+			}
+		}
+	}
 	n, err := s.cfg.Store.FailInterruptedRuns(ctx, "server restarted")
 	if err != nil {
 		return fmt.Errorf("recovering interrupted runs: %w", err)
@@ -121,6 +152,10 @@ func (s *Server) Start(ctx context.Context) error {
 		s.log.Warn("marked interrupted runs failed", "count", n)
 	}
 	ctx, s.cancel = context.WithCancel(ctx)
+	s.baseCtx = ctx
+	for _, r := range interrupted {
+		s.reportFinished(r, store.RunFailed, "server restarted")
+	}
 	for i := 0; i < s.cfg.MaxRuns; i++ {
 		s.wg.Add(1)
 		go func() {

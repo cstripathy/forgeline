@@ -61,7 +61,9 @@ func (s *Server) execute(ctx context.Context, run store.Run) {
 		defer done()
 		if _, err := s.cfg.Store.UpdateRun(c, run.ID, store.RunUpdate{Status: status, Reason: reason}); err != nil {
 			s.log.Error("recording run result", "run", run.ID, "err", err)
+			return
 		}
+		s.reportFinished(run, status, reason)
 	}
 
 	p, err := pipeline.Load(strings.NewReader(run.PipelineYAML))

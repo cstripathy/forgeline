@@ -181,7 +181,7 @@ design note.
   `Last-Event-ID`, steps that never ran, errors, and client disconnect. Verified with a fake
   executor only; not seen against real Docker output.
 
-### Step 11: GitHub webhook trigger and commit status (not started)
+### Step 11: GitHub webhook trigger and commit status (done; not yet seen against real GitHub deliveries)
 
 - Verify the webhook signature (HMAC SHA-256) before reading the payload, in constant time.
 - On push and pull request events, fetch the repository at the commit, read the pipeline file,
@@ -194,6 +194,14 @@ design note.
   the allow list, a fork pull request being ignored, and status transitions against a fake
   GitHub API. Which GitHub credential type to use (GitHub App or fine-grained token) is decided
   in note 003.
+- Done: `internal/server/github.go`, `forgeline server --github-allow`, decisions in note 003.
+  Tests cover every acceptance case above plus redelivery, duplicates, the download limit,
+  canceling a queued run, and restart recovery; two mutations (signature check bypassed, fork
+  PRs allowed) were confirmed to fail the tests. Run by hand through the built binary with
+  real Docker and Postgres against a local stand-in GitHub API, and the archive extractor was
+  run on a real GitHub tarball of this repository. **Not done:** a real webhook delivery from
+  GitHub and a real commit status, which need a public URL and a token and post to a
+  repository, so they wait for the maintainer.
 
 ### Step 12: web UI with DAG run view (done; built before step 11 because the maintainer wants a web view to try)
 
@@ -226,7 +234,8 @@ design note.
   exercised yet, so the first real delete is the test of it. The browser UI has not been
   checked through the tunnel on this deployment.
 
-When step 13 is done, mark M2 done in `docs/ROADMAP.md`.
+When step 13 is done, mark M2 done in `docs/ROADMAP.md`. (Steps 7 to 13 are now all built; the
+roadmap exit criterion also asks for a real GitHub round trip, listed under step 11 above.)
 
 ## M2b: onboarding and connectors (designed, not started)
 

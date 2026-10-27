@@ -77,6 +77,31 @@ rest of the project. Validation failures return the pipeline's field-path errors
 - Post commit status `pending` at start and `success` or `failure` at the end, with a link to
   the run page. A failed status post is logged and does not change the run's result.
 
+### Decided while building step 11
+
+- **Source is the GitHub tarball API, not `git clone`.** `GET /repos/{repo}/tarball/{sha}` needs
+  no `git` binary on the server and runs no command from a payload. It goes through the same
+  strict extractor as uploads, in a repo mode: the top-level directory is stripped, the pax
+  global header is ignored, and symlinks are skipped (counted in the log) rather than rejected,
+  because real repositories contain them. Submodules are not fetched.
+- **The webhook answers `202` and does the checkout in the background,** because GitHub gives
+  up after 10 seconds. Anything that goes wrong before a run exists is reported as an `error`
+  commit status. Redelivering the same event is allowed after such a failure (the delivery ID
+  is forgotten); a repeat while one is in flight or done is ignored. That memory is in-process
+  and bounded to 1024 IDs, so a restart forgets it.
+- **Concurrent downloads are bounded** (default 4). Over the limit the webhook answers `503`
+  with `Retry-After`, and GitHub's "redeliver" works once there is room.
+- **The pipeline file is `forgeline.yaml` at the repository root** (configurable in code).
+  Pull request runs use the file from the head commit, which is acceptable only because forks
+  are excluded and the allow list names trusted repositories.
+- **Allow rules are exact:** repository names are compared case-insensitively, branches are
+  names or `path.Match` patterns (`release/*` stops at a slash), and there is no wildcard
+  that allows everything.
+- **Final status comes from the runner.** A run that is canceled while queued, or interrupted
+  by a restart, posts its status too; otherwise the commit would show `pending` forever.
+  `FORGELINE_GITHUB_API_URL` points at GitHub Enterprise Server; plain `http` is accepted only
+  for loopback addresses because the token travels in every request.
+
 ## Cancellation and limits
 
 Cancel cancels the run's context, which already stops containers. The server limits concurrent

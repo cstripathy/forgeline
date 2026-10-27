@@ -35,6 +35,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/runs/{id}", s.auth(http.HandlerFunc(s.handleGet)))
 	mux.Handle("POST /v1/runs/{id}/cancel", s.auth(http.HandlerFunc(s.handleCancel)))
 	mux.Handle("GET /v1/runs/{id}/steps/{step}/logs", s.auth(http.HandlerFunc(s.handleLogs)))
+	if s.cfg.GitHub != nil {
+		// No bearer token: GitHub cannot send one. The HMAC signature is the authentication.
+		mux.HandleFunc("POST /webhooks/github", s.handleGitHubWebhook)
+	}
 	return mux
 }
 
@@ -306,6 +310,7 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 			for _, st := range steps {
 				s.cfg.Store.UpdateStep(r.Context(), id, st.StepID, store.StepUpdate{Status: store.StepCanceled})
 			}
+			s.reportFinished(run, store.RunCanceled, "canceled by user")
 		case errors.Is(err, store.ErrInvalidTransition):
 			// A worker claimed it just now; cancel it as a running run.
 			s.requestCancel(id)
