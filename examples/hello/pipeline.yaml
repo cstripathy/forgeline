@@ -1,0 +1,21 @@
+# Two independent steps feed a third that needs both.
+# Run from the repository root:  forgeline run examples/hello/pipeline.yaml
+# Docker must be running. Run it twice to see the second run served from cache.
+version: v1alpha1
+name: hello
+steps:
+  - id: shout-a
+    image: alpine:3.24
+    run: mkdir -p out && tr a-z A-Z < src/a.txt > out/a.txt
+    inputs: [src/a.txt]
+
+  - id: shout-b
+    image: alpine:3.24
+    run: mkdir -p out && tr a-z A-Z < src/b.txt > out/b.txt
+    inputs: [src/b.txt]
+
+  - id: combine
+    image: alpine:3.24
+    run: cat out/a.txt out/b.txt | tee out/combined.txt
+    needs: [shout-a, shout-b]
+    inputs: [out/a.txt, out/b.txt]

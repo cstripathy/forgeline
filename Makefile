@@ -1,4 +1,4 @@
-.PHONY: build test vet ci clean
+.PHONY: build test vet ci clean run-local
 
 build:
 	go build -o bin/forgeline ./cmd/forgeline
@@ -14,3 +14,8 @@ ci: vet test build
 
 clean:
 	rm -rf bin
+
+# Start the server on this machine only, with a generated token and in-memory history.
+# Needs Docker for steps to run. Open the link it prints.
+run-local: build
+	./bin/forgeline server --data-dir .forgeline-server

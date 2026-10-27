@@ -11,8 +11,8 @@ func validPipeline() Pipeline {
 		Version: VersionV1Alpha1,
 		Name:    "demo",
 		Steps: []Step{
-			{ID: "build", Image: "golang:1.24", Run: "go build ./..."},
-			{ID: "test", Image: "golang:1.24", Command: []string{"go", "test", "./..."}, Needs: []string{"build"}},
+			{ID: "build", Image: "golang:1.27", Run: "go build ./..."},
+			{ID: "test", Image: "golang:1.27", Command: []string{"go", "test", "./..."}, Needs: []string{"build"}},
 		},
 	}
 }
@@ -22,6 +22,8 @@ func TestValidateAcceptsValidPipeline(t *testing.T) {
 	p.Steps[1].Env = map[string]string{"CGO_ENABLED": "0", "_X": "1"}
 	p.Steps[1].WorkDir = "/src"
 	p.Steps[1].Timeout = "10m"
+	p.Steps[1].Permissions.Network = NetworkNone
+	p.Steps[1].Inputs = []string{"go.mod", "**/*.go", "docs", "src/[ab]?.txt"}
 	if err := p.Validate(); err != nil {
 		t.Fatalf("Validate() = %v, want nil", err)
 	}
@@ -62,8 +64,15 @@ func TestValidateRejects(t *testing.T) {
 		{"bad env name", func(p *Pipeline) { p.Steps[0].Env = map[string]string{"1BAD": "x"} }, "steps[0].env", "invalid variable name"},
 		{"relative workdir", func(p *Pipeline) { p.Steps[0].WorkDir = "src" }, "steps[0].workdir", "absolute"},
 		{"bad timeout", func(p *Pipeline) { p.Steps[0].Timeout = "soon" }, "steps[0].timeout", "not a valid duration"},
+		{"unknown network", func(p *Pipeline) { p.Steps[0].Permissions.Network = "host" }, "steps[0].permissions.network", `must be "none" or "egress"`},
+		{"network is case sensitive", func(p *Pipeline) { p.Steps[0].Permissions.Network = "None" }, "steps[0].permissions.network", "must be"},
 		{"zero timeout", func(p *Pipeline) { p.Steps[0].Timeout = "0s" }, "steps[0].timeout", "must be positive"},
 		{"negative timeout", func(p *Pipeline) { p.Steps[0].Timeout = "-5m" }, "steps[0].timeout", "must be positive"},
+		{"empty input", func(p *Pipeline) { p.Steps[0].Inputs = []string{""} }, "steps[0].inputs[0]", "must not be empty"},
+		{"absolute input", func(p *Pipeline) { p.Steps[0].Inputs = []string{"/etc/passwd"} }, "steps[0].inputs[0]", "relative"},
+		{"parent input", func(p *Pipeline) { p.Steps[0].Inputs = []string{"ok", "../secret"} }, "steps[0].inputs[1]", ".."},
+		{"backslash input", func(p *Pipeline) { p.Steps[0].Inputs = []string{`a\b`} }, "steps[0].inputs[0]", "backslash"},
+		{"bad bracket input", func(p *Pipeline) { p.Steps[0].Inputs = []string{"src/[a-"} }, "steps[0].inputs[0]", "not a valid glob"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

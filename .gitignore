@@ -7,3 +7,10 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Local pipeline state and example output
+.forgeline/
+examples/*/out/
+forgeline-data/
+.forgeline-server/
+.playwright-mcp/

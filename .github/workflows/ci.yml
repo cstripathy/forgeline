@@ -12,6 +12,22 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Lets the Postgres store tests run instead of skipping. Throwaway database, test only.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: forgeline_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FORGELINE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/forgeline_test
     steps:
       # Pinned to a full commit SHA (actions/checkout v7.0.1), not a mutable tag.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

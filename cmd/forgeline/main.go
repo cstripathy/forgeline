@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/cstripathy/forgeline/internal/executor"
 	"github.com/cstripathy/forgeline/internal/pipeline"
 	"github.com/cstripathy/forgeline/internal/version"
 )
@@ -17,6 +18,11 @@ Status: pre-alpha. Only the commands below exist.
 Usage:
   forgeline version    print the version
   forgeline schema     print the pipeline JSON Schema
+  forgeline run [--parallel N] [--no-cache] <pipeline.yaml>
+                       run a pipeline in Docker, skipping steps whose inputs are unchanged
+  forgeline server     start the control plane (REST API and runner); see "forgeline server -h"
+  forgeline submit [--server URL] [--wait] <pipeline.yaml>
+                       send a pipeline to a server
   forgeline help       show this message
 `
 
@@ -26,6 +32,11 @@ func main() {
 
 // run executes the command line and returns the process exit code.
 func run(args []string, stdout, stderr io.Writer) int {
+	return runWith(args, stdout, stderr, executor.Docker{})
+}
+
+// runWith is run with the step executor supplied, so tests can avoid Docker.
+func runWith(args []string, stdout, stderr io.Writer, ex executor.Executor) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2
@@ -42,6 +53,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		stdout.Write(out)
 		return 0
+	case "run":
+		return runPipeline(args[1:], stdout, stderr, ex)
+	case "server":
+		ctx, stop := signalContext()
+		defer stop()
+		return runServer(ctx, args[1:], stdout, stderr, ex, os.Getenv)
+	case "submit":
+		ctx, stop := signalContext()
+		defer stop()
+		return runSubmit(ctx, args[1:], stdout, stderr, os.Getenv)
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return 0

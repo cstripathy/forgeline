@@ -1,0 +1,11 @@
+version: v1alpha1
+name: demo
+steps:
+  - id: build
+    image: golang:1.27
+    run: go build ./...
+  - id: test
+    image: golang:1.27
+    command: [go, test, ./...]
+    needs: [build]
+    timeout: 10m

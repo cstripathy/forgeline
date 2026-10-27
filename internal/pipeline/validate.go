@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -118,6 +119,18 @@ func (p *Pipeline) Validate() error {
 			add(path+".workdir", "must be an absolute path, got %q", s.WorkDir)
 		}
 
+		for j, pat := range s.Inputs {
+			if msg := checkGlob(pat); msg != "" {
+				add(fmt.Sprintf("%s.inputs[%d]", path, j), "%s, got %q", msg, pat)
+			}
+		}
+
+		switch s.Permissions.Network {
+		case "", NetworkNone, NetworkEgress:
+		default:
+			add(path+".permissions.network", "must be %q or %q, got %q", NetworkNone, NetworkEgress, s.Permissions.Network)
+		}
+
 		if s.Timeout != "" {
 			d, err := time.ParseDuration(s.Timeout)
 			switch {
@@ -133,4 +146,29 @@ func (p *Pipeline) Validate() error {
 		return nil
 	}
 	return &ValidationError{Errors: errs}
+}
+
+// checkGlob returns why an inputs pattern is invalid, or "". The syntax is described in
+// docs/design/002-spec-extensions.md.
+func checkGlob(pat string) string {
+	switch {
+	case strings.TrimSpace(pat) == "":
+		return "must not be empty"
+	case strings.HasPrefix(pat, "/"):
+		return "must be relative to the workspace"
+	case strings.Contains(pat, `\`):
+		return `must use "/" separators, not backslashes`
+	}
+	for _, seg := range strings.Split(pat, "/") {
+		if seg == ".." {
+			return `must not contain a ".." segment`
+		}
+		if seg == "**" {
+			continue
+		}
+		if _, err := path.Match(seg, ""); err != nil {
+			return "is not a valid glob"
+		}
+	}
+	return ""
 }

@@ -29,4 +29,19 @@ type Step struct {
 	Env     map[string]string `json:"env,omitempty" doc:"Environment variables for the step. Names must be valid identifiers."`
 	WorkDir string            `json:"workdir,omitempty" doc:"Absolute working directory inside the container." pattern:"^/"`
 	Timeout string            `json:"timeout,omitempty" doc:"Maximum run time as a duration such as 30s or 10m. Must be positive."`
+	// Permissions limits what the step may do. Only network is enforced so far; the rest of
+	// the reserved set (secrets, untrusted input) is described in docs/design/005-threat-model.md.
+	Permissions Permissions `json:"permissions,omitempty" doc:"What the step is allowed to do. See docs/design/005-threat-model.md."`
+	Inputs      []string    `json:"inputs,omitempty" doc:"Workspace-relative file globs that make up the step's cache key. A step without inputs is never cached."`
 }
+
+// Permissions is what a step is allowed to do beyond running in its container.
+type Permissions struct {
+	Network string `json:"network,omitempty" doc:"Outbound network access: none cuts the step off from every network, egress allows it. Empty means egress for now." enum:"none,egress"`
+}
+
+// Network values.
+const (
+	NetworkNone   = "none"
+	NetworkEgress = "egress"
+)
