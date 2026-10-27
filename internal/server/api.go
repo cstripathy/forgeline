@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cstripathy/forgeline/internal/authn"
 	"github.com/cstripathy/forgeline/internal/pipeline"
 	"github.com/cstripathy/forgeline/internal/store"
 )
@@ -30,31 +29,28 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	mux.Handle("POST /v1/runs", s.auth(http.HandlerFunc(s.handleSubmit)))
-	mux.Handle("GET /v1/runs", s.auth(http.HandlerFunc(s.handleList)))
-	mux.Handle("GET /v1/runs/{id}", s.auth(http.HandlerFunc(s.handleGet)))
-	mux.Handle("POST /v1/runs/{id}/cancel", s.auth(http.HandlerFunc(s.handleCancel)))
-	mux.Handle("GET /v1/runs/{id}/steps/{step}/logs", s.auth(http.HandlerFunc(s.handleLogs)))
+	mux.Handle("POST /v1/runs", s.requireRole(authn.Developer, s.handleSubmit))
+	mux.Handle("GET /v1/runs", s.requireRole(authn.Viewer, s.handleList))
+	mux.Handle("GET /v1/runs/{id}", s.requireRole(authn.Viewer, s.handleGet))
+	mux.Handle("POST /v1/runs/{id}/cancel", s.requireRole(authn.Developer, s.handleCancel))
+	mux.Handle("GET /v1/runs/{id}/steps/{step}/logs", s.requireRole(authn.Viewer, s.handleLogs))
+
+	// Accounts and sessions. State, setup and login are open by design; setup needs the server token.
+	mux.HandleFunc("GET /v1/auth/state", s.handleAuthState)
+	mux.HandleFunc("POST /v1/auth/setup", s.handleSetup)
+	mux.HandleFunc("POST /v1/auth/login", s.handleLogin)
+	mux.Handle("POST /v1/auth/logout", s.requireRole(authn.Viewer, s.handleLogout))
+	mux.Handle("POST /v1/me/password", s.requireRole(authn.Viewer, s.handleChangeOwnPassword))
+	mux.Handle("GET /v1/users", s.requireRole(authn.Admin, s.handleListUsers))
+	mux.Handle("POST /v1/users", s.requireRole(authn.Admin, s.handleCreateUser))
+	mux.Handle("PATCH /v1/users/{id}", s.requireRole(authn.Admin, s.handleUpdateUser))
+	mux.Handle("DELETE /v1/users/{id}", s.requireRole(authn.Admin, s.handleDeleteUser))
+	mux.Handle("GET /v1/audit", s.requireRole(authn.Admin, s.handleAudit))
 	if s.cfg.GitHub != nil {
 		// No bearer token: GitHub cannot send one. The HMAC signature is the authentication.
 		mux.HandleFunc("POST /webhooks/github", s.handleGitHubWebhook)
 	}
 	return mux
-}
-
-// auth requires "Authorization: Bearer <token>". Both sides are hashed first so the
-// comparison takes the same time whatever the token's length or contents.
-func (s *Server) auth(next http.Handler) http.Handler {
-	want := sha256.Sum256([]byte(s.cfg.Token))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got := sha256.Sum256([]byte(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")))
-		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
-			w.Header().Set("WWW-Authenticate", "Bearer")
-			writeError(w, http.StatusUnauthorized, "missing or invalid bearer token")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

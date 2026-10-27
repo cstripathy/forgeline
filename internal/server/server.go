@@ -8,6 +8,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,8 +18,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cstripathy/forgeline/internal/docstore"
 	"github.com/cstripathy/forgeline/internal/executor"
 	"github.com/cstripathy/forgeline/internal/store"
+	"github.com/cstripathy/forgeline/internal/vault"
 )
 
 // MinTokenLength is the shortest bearer token the server accepts.
@@ -48,6 +51,11 @@ type Config struct {
 	Secrets map[string]string
 	// GitHub, if set, enables POST /webhooks/github and commit status reporting.
 	GitHub *GitHubConfig
+	// Docs keeps the console's accounts, pipelines, secrets and audit log. Nil means an
+	// in-memory store, which loses everything on exit.
+	Docs docstore.Store
+	// Vault encrypts console secrets. Nil means a random key for this process only.
+	Vault  *vault.Vault
 	Logger *slog.Logger
 }
 
@@ -68,6 +76,12 @@ type Server struct {
 
 	deliveries deliveryLog
 	checkouts  chan struct{} // bounds GitHub downloads in flight
+
+	docs     docstore.Store
+	vault    *vault.Vault
+	throttle throttle
+	setupMu  sync.Mutex // serialises first-run setup
+	userMu   sync.Mutex // serialises changes to accounts, for the last-admin rule
 }
 
 // New validates cfg, prepares the data directory and returns a Server. Call Start to begin
@@ -118,7 +132,22 @@ func New(cfg Config) (*Server, error) {
 			return nil, fmt.Errorf("server: preparing data dir: %w", err)
 		}
 	}
+	if cfg.Docs == nil {
+		cfg.Docs = docstore.NewMemory()
+	}
+	if cfg.Vault == nil {
+		key := make([]byte, vault.KeySize)
+		if _, err := rand.Read(key); err != nil {
+			return nil, err
+		}
+		v, err := vault.New(key)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Vault = v
+	}
 	srv := &Server{
+		docs: cfg.Docs, vault: cfg.Vault,
 		cfg: cfg, log: cfg.Logger,
 		wake:          make(chan struct{}, cfg.MaxRuns),
 		ctls:          map[string]*runCtl{},
