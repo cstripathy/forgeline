@@ -6,7 +6,7 @@ nav_order: 1
 
 # Endpoints
 
-Role = the minimum role. *public* needs no credentials.
+Role = the minimum role. A test (`internal/server/apidocs_test.go`) fails if a route is missing from this page or has a different role, so the lists stay true to the code. *public* needs no credentials.
 
 ## Health and sign-in
 
@@ -113,7 +113,7 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | Method and path | Role | Purpose |
 | --- | --- | --- |
 | `GET /v1/assistant` | developer | Whether it is on, and which backend. |
-| `PUT /v1/integrations/assistant` | admin | Body: `backend` (`off`, `api`, `cli`), `model`, `api_base`, `api_key` (write-only). |
+| `PUT /v1/integrations/assistant` | admin | Body: `backend` (`off`, `api`, `claude-token`, `cli`), `model`, `api_base`, `api_key` and `claude_token` (both write-only; the token is stored as the secret `CLAUDE_CODE_OAUTH_TOKEN`). |
 | `POST /v1/integrations/assistant/test` | admin | Ask it something small to check the setup. |
 | `POST /v1/assistant/chat` | developer | Body: `message`, `history`, `context` (the page: run, pipeline, infra or overview). Returns `reply`. 20 a minute per person. |
 
