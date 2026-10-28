@@ -26,7 +26,7 @@ Forgeline mints short-lived tokens by itself, so there is no personal token to r
 {: .note }
 GitHub can only deliver webhooks to a public **https** address. On a laptop the webhook is created switched off; put the server behind TLS or a tunnel and switch it on.
 
-**Verified:** the whole flow against a stand-in for GitHub, including a signed webhook starting a run and statuses posted with an installation token. **Not yet:** creating an app on github.com itself. Design: [note 010](https://github.com/cstripathy/forgeline/blob/main/docs/design/010-github-app.md).
+**Verified:** the whole flow against a stand-in for GitHub, including a signed webhook starting a run and statuses posted with an installation token. The app was also created and installed on github.com, and the connection test read 19 repositories with an installation token. **Not yet:** a real webhook delivery or a commit status on a real repository. Design: [note 010](https://github.com/cstripathy/forgeline/blob/main/docs/design/010-github-app.md).
 
 ## B. Token
 

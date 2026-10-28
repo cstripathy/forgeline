@@ -102,9 +102,12 @@ integration (against a stand-in GitHub API), the infrastructure pages (real Dock
 real AWS account read-only), and the cloud-change workflow (propose, refuse self-approval,
 reject; approve and execute against an AWS stand-in).
 
-**Not checked:** a change executed against a real AWS account (only previews and rejection were
-done there; execution was exercised against a stand-in that implements the same calls), the
-real GitHub API (a stand-in served the calls the server makes), TLS and a real reverse proxy
+**Checked later on real services (2026-10-28):** a deploy and a delete of the demo stack on a real
+AWS account, each proposed by the API token and approved by `admin` in the browser (the preview
+listed the four resources; the instance was created, then terminated), and the GitHub App against
+real github.com (see notes 009 and 010).
+
+**Not checked:** TLS and a real reverse proxy
 (the session cookie's Secure flag is covered by a test, not by a browser over HTTPS), more than
 one server process sharing a database (the last-administrator rule and the per-target change
 lock use in-process locks), and single sign-on (not built).
