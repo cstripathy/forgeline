@@ -203,3 +203,48 @@ func TestAssistantCLIBackendRunsClaudeWithNoToolsAndCleanEnvironment(t *testing.
 		t.Errorf("claude did not run in an empty scratch directory:\n%s", got)
 	}
 }
+
+func TestAssistantClaudeTokenBackendUsesTheVaultTokenAndAScratchHome(t *testing.T) {
+	const token = "sk-ant-oat01-vault-token-for-tests-0123456789"
+	dir := t.TempDir()
+	record := filepath.Join(dir, "record")
+	script := "#!/bin/sh\n{ echo \"TOKEN=$CLAUDE_CODE_OAUTH_TOKEN\"; echo \"HOME=$HOME\"; echo \"SERVER=$FORGELINE_TOKEN\"; echo \"ARGS: $*\"; } > " + record + "\necho 'Fine.'\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("FORGELINE_TOKEN", "must-not-leak-0123456789")
+
+	h := newConsoleHarness(t)
+	admin := h.adminBrowser("ada")
+	// Without a token the backend cannot be chosen.
+	admin.expect(400, "PUT", "/v1/integrations/assistant", map[string]any{"backend": "claude-token"})
+	// The token is stored once, write-only, and is the same secret agent steps request.
+	body := admin.expect(200, "PUT", "/v1/integrations/assistant", map[string]any{"backend": "claude-token", "claude_token": token})
+	if strings.Contains(string(body), token) {
+		t.Fatalf("the token came back: %s", body)
+	}
+	var v AssistantJSON
+	json.Unmarshal(body, &v)
+	if !v.Ready || !v.HasToken {
+		t.Fatalf("view = %+v", v)
+	}
+	if !strings.Contains(string(admin.expect(200, "GET", "/v1/secrets", nil)), claudeTokenName) {
+		t.Error("the token is not listed as the secret agent steps use")
+	}
+	var reply ChatReply
+	json.Unmarshal(admin.expect(200, "POST", "/v1/assistant/chat", map[string]any{"message": "Hi"}), &reply)
+	b, _ := os.ReadFile(record)
+	got := string(b)
+	if !strings.Contains(got, "TOKEN="+token+"\n") {
+		t.Errorf("claude did not get the vault token:\n%s", got)
+	}
+	if strings.Contains(got, "HOME="+os.Getenv("HOME")+"\n") || !strings.Contains(got, "/home\n") {
+		t.Errorf("claude ran with the server user's home, not a scratch one:\n%s", got)
+	}
+	if strings.Contains(got, "must-not-leak") || strings.Contains(got, "--tools  ") == false {
+		t.Errorf("environment leaked or tools were not switched off:\n%s", got)
+	}
+	// Short or malformed tokens are refused.
+	admin.expect(400, "PUT", "/v1/integrations/assistant", map[string]any{"backend": "claude-token", "claude_token": "short"})
+}

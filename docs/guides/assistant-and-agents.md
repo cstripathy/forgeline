@@ -22,10 +22,11 @@ Click **Assistant** in the top bar. It sees the page you are on (a run, a pipeli
 
 Set it up under **Integrations → Assistant**:
 
-- **Anthropic API key**: stored in the vault.
+- **Anthropic API key**: stored in the vault. Billed to that key. Best for teams.
+- **Claude Code login token**: paste the output of `claude setup-token` once. It is stored as the secret `CLAUDE_CODE_OAUTH_TOKEN`, the same one agent steps use. The `claude` program runs in a scratch home directory with only that token, so the server user's own login is not touched.
 - **Local `claude` CLI**: uses the login of the person running the server. Meant for a single-person setup.
 
-![Settings]({{ '/console/22-assistant-settings.png' | relative_url }})
+![Settings]({{ '/console/33-assistant-token.png' | relative_url }})
 
 Questions are rate limited (20 a minute per person) and audited by page and length, not by text.
 

@@ -29,7 +29,10 @@ const (
 	idAssistant        = "assistant"
 	assistantKeyName   = "forgeline.assistant.api_key"
 	defaultAssistModel = "claude-sonnet-5-5"
-	defaultAnthropic   = "https://api.anthropic.com"
+	// claudeTokenName is the vault secret that agent steps also use (note 007): the output of
+	// `claude setup-token`.
+	claudeTokenName  = "CLAUDE_CODE_OAUTH_TOKEN"
+	defaultAnthropic = "https://api.anthropic.com"
 
 	maxAssistMessage = 4000
 	maxAssistHistory = 12
@@ -45,6 +48,9 @@ const (
 	assistOff = "off"
 	assistAPI = "api" // the Anthropic API with a key kept in the vault
 	assistCLI = "cli" // the claude program on the server, using the login of the server's user
+	// assistToken runs the claude program with the vault's Claude Code token, in a scratch home
+	// directory, so it does not depend on (or touch) the server user's own login.
+	assistToken = "claude-token"
 )
 
 type assistantSettings struct {
@@ -70,6 +76,7 @@ type AssistantJSON struct {
 	Backend   string `json:"backend"`
 	Model     string `json:"model"`
 	HasKey    bool   `json:"has_key"`
+	HasToken  bool   `json:"has_token"`
 	APIBase   string `json:"api_base,omitempty"`
 	Ready     bool   `json:"ready"`
 	UpdatedBy string `json:"updated_by,omitempty"`
@@ -79,11 +86,12 @@ type AssistantJSON struct {
 func (s *Server) assistantView(ctx context.Context) AssistantJSON {
 	st := s.loadAssistant(ctx)
 	_, hasKey := s.internalSecretValue(ctx, assistantKeyName)
-	v := AssistantJSON{Backend: st.Backend, Model: st.Model, HasKey: hasKey, APIBase: st.APIBase}
+	_, hasToken := s.internalSecretValue(ctx, claudeTokenName)
+	v := AssistantJSON{Backend: st.Backend, Model: st.Model, HasKey: hasKey, HasToken: hasToken, APIBase: st.APIBase}
 	if v.Model == "" {
 		v.Model = defaultAssistModel
 	}
-	v.Ready = st.Backend == assistCLI || (st.Backend == assistAPI && hasKey)
+	v.Ready = st.Backend == assistCLI || (st.Backend == assistAPI && hasKey) || (st.Backend == assistToken && hasToken)
 	if !st.UpdatedAt.IsZero() {
 		v.UpdatedBy, v.UpdatedAt = st.UpdatedBy, st.UpdatedAt.Format(time.RFC3339)
 	}
@@ -100,6 +108,9 @@ type putAssistantRequest struct {
 	APIBase string `json:"api_base"`
 	// APIKey is write-only. Empty keeps the stored key.
 	APIKey string `json:"api_key"`
+	// ClaudeToken is write-only too: the output of `claude setup-token`. It is stored under the
+	// name agent steps request, so one login serves both. Empty keeps the stored token.
+	ClaudeToken string `json:"claude_token"`
 }
 
 func (s *Server) handlePutAssistant(w http.ResponseWriter, r *http.Request) {
@@ -108,10 +119,11 @@ func (s *Server) handlePutAssistant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Model, req.APIBase, req.APIKey = strings.TrimSpace(req.Model), strings.TrimSpace(req.APIBase), strings.TrimSpace(req.APIKey)
+	req.ClaudeToken = strings.TrimSpace(req.ClaudeToken)
 	switch req.Backend {
-	case assistOff, assistAPI, assistCLI:
+	case assistOff, assistAPI, assistCLI, assistToken:
 	default:
-		writeError(w, http.StatusBadRequest, `backend must be "off", "api" or "cli"`)
+		writeError(w, http.StatusBadRequest, `backend must be "off", "api", "claude-token" or "cli"`)
 		return
 	}
 	if len(req.Model) > 80 || strings.ContainsAny(req.Model, " \t\r\n") {
@@ -128,7 +140,17 @@ func (s *Server) handlePutAssistant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "that does not look like an API key")
 		return
 	}
+	if req.ClaudeToken != "" && (len(req.ClaudeToken) < 20 || len(req.ClaudeToken) > 600 || strings.ContainsAny(req.ClaudeToken, " \t\r\n")) {
+		writeError(w, http.StatusBadRequest, "that does not look like a Claude Code token (run `claude setup-token`)")
+		return
+	}
 	p := principalFrom(r.Context())
+	if req.ClaudeToken != "" {
+		if _, _, err := s.putSecret(r.Context(), p.Name, claudeTokenName, req.ClaudeToken, "Claude Code login (assistant and agent steps)"); err != nil {
+			s.internalError(w, "saving the token", err)
+			return
+		}
+	}
 	if req.APIKey != "" {
 		if _, _, err := s.putSecret(r.Context(), p.Name, assistantKeyName, req.APIKey, "Assistant API key"); err != nil {
 			s.internalError(w, "saving the key", err)
@@ -139,6 +161,10 @@ func (s *Server) handlePutAssistant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "the API backend needs an API key")
 		return
 	}
+	if _, ok := s.internalSecretValue(r.Context(), claudeTokenName); req.Backend == assistToken && !ok {
+		writeError(w, http.StatusBadRequest, "this backend needs a Claude Code token")
+		return
+	}
 	st := assistantSettings{Backend: req.Backend, Model: req.Model, APIBase: req.APIBase, UpdatedAt: time.Now().UTC(), UpdatedBy: p.Name}
 	if err := s.docs.Put(r.Context(), kindSettings, idAssistant, st); err != nil {
 		s.internalError(w, "saving the settings", err)
@@ -147,6 +173,9 @@ func (s *Server) handlePutAssistant(w http.ResponseWriter, r *http.Request) {
 	detail := "backend " + st.Backend
 	if req.APIKey != "" {
 		detail += ", key replaced"
+	}
+	if req.ClaudeToken != "" {
+		detail += ", token replaced"
 	}
 	s.auditReq(r, "integration.assistant.update", "integration/assistant", detail, true)
 	writeJSON(w, http.StatusOK, s.assistantView(r.Context()))
@@ -380,7 +409,13 @@ func (s *Server) askAssistant(ctx context.Context, turns []chatTurn, ctxText str
 		}
 		return s.askAPI(ctx, st, model, key, system, turns)
 	case assistCLI:
-		return askCLI(ctx, model, system, turns)
+		return askCLI(ctx, model, system, turns, "")
+	case assistToken:
+		tok, ok := s.internalSecretValue(ctx, claudeTokenName)
+		if !ok {
+			return "", errors.New("the assistant has no Claude Code token")
+		}
+		return askCLI(ctx, model, system, turns, tok)
 	}
 	return "", errors.New("the assistant is not set up")
 }
@@ -437,7 +472,7 @@ func (s *Server) askAPI(ctx context.Context, st assistantSettings, model, key, s
 // askCLI runs the claude program on the server, as the server's user, with no tools, in an empty
 // directory and with a clean environment. It uses whatever login that user has, so it is meant
 // for a single-person server; the settings page says so.
-func askCLI(ctx context.Context, model, system string, turns []chatTurn) (string, error) {
+func askCLI(ctx context.Context, model, system string, turns []chatTurn, token string) (string, error) {
 	dir, err := os.MkdirTemp("", "forgeline-assist-")
 	if err != nil {
 		return "", err
@@ -474,6 +509,15 @@ func askCLI(ctx context.Context, model, system string, turns []chatTurn) (string
 	// A clean environment: the login is found through HOME, and nothing else of the server's
 	// (its token, master key or cloud credentials) is passed on.
 	cmd.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8"}
+	if token != "" {
+		// The vault token replaces the server user's login: a scratch home, so nothing of the
+		// user's own ~/.claude is read, and the token is the only credential the program has.
+		home := filepath.Join(dir, "home")
+		if err := os.Mkdir(home, 0o700); err != nil {
+			return "", err
+		}
+		cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", claudeTokenName + "=" + token}
+	}
 	cmd.Stdin = strings.NewReader(prompt.String())
 	var out, errb limitedBuffer
 	out.max, errb.max = 1<<20, 1<<14
