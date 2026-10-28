@@ -1,7 +1,11 @@
 # 004: Onboarding wizard and connectors
 
-Status: **Proposed.** Date: 2026-10-24. Nothing here is implemented. It needs three decisions
-from the maintainer (see the end) before step O1 starts.
+Status: **Proposed; partly overtaken.** Date: 2026-10-24. The web console (note 006) now has a
+read-only AWS view (stacks, instances), a GitHub connection with a connection test, and an
+approval flow for cloud changes, which covers parts of O1 and O4 in a different shape. ECS and
+ECR discovery, the plan and apply engine and the generated pipelines are not built. Re-scope
+O1 to O6 against the console before starting, and still ask the maintainer the three decisions
+at the end.
 
 ## What we want
 

@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+# A stateful stand-in for the AWS CLI, for trying the console's approval workflow without
+# changing a real account. It implements only the calls the console makes. See README.md.
+import json, os, sys
+
+STATE = os.environ.get("FAKE_AWS_STATE", "/tmp/fake-aws-state.json")
+ACCOUNT = "111122223333"
+
+def load():
+    try:
+        return json.load(open(STATE))
+    except Exception:
+        return {"stacks": {}, "changesets": {}, "seen": {}, "instances": {
+            "i-0aaa1111bbbb2222c": {"state": "stopped", "name": "forgeline-demo", "stack": "forgeline-demo", "type": "t4g.small", "ip": "172.31.10.5"},
+            "i-0ddd3333eeee4444f": {"state": "running", "name": "build-runner", "stack": "", "type": "t3.medium", "ip": "172.31.10.9"}}}
+
+def save(s): json.dump(s, open(STATE, "w"))
+def out(v): print(json.dumps(v)); sys.exit(0)
+def err(msg): sys.stderr.write(msg + "\n"); sys.exit(254)
+
+argv = sys.argv[1:]
+a, i = [], 0
+while i < len(argv):
+    if argv[i] in ("--profile", "--region", "--output"): i += 2
+    else: a.append(argv[i]); i += 1
+
+def flag(name):
+    return a[a.index(name) + 1] if name in a else ""
+
+st = load()
+key = " ".join(a[:2])
+
+if key == "sts get-caller-identity":
+    out({"Account": ACCOUNT, "Arn": "arn:aws:sts::%s:assumed-role/Admin/ada" % ACCOUNT, "UserId": "AROASIM:ada"})
+
+if key == "cloudformation describe-stacks":
+    name = flag("--stack-name")
+    def stack(n, s):
+        done = s.endswith("COMPLETE") and not s.startswith("DELETE")
+        return {"StackName": n, "StackStatus": s, "CreationTime": "2026-10-20T10:00:00Z",
+                "Outputs": [{"OutputKey": "InstanceId", "OutputValue": "i-0aaa1111bbbb2222c"}] if done else []}
+    if name:
+        if name not in st["stacks"]:
+            err("An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id %s does not exist" % name)
+        status = st["stacks"][name]
+        if status.endswith("_IN_PROGRESS") and status != "REVIEW_IN_PROGRESS":
+            st["seen"][name] = st["seen"].get(name, 0) + 1
+            if st["seen"][name] >= 3:  # AWS takes a few polls to finish
+                if status == "CREATE_IN_PROGRESS": status = "CREATE_COMPLETE"
+                elif status == "UPDATE_IN_PROGRESS": status = "UPDATE_COMPLETE"
+                elif status == "DELETE_IN_PROGRESS":
+                    del st["stacks"][name]; save(st)
+                    err("An error occurred (ValidationError): Stack with id %s does not exist" % name)
+                st["stacks"][name] = status
+            save(st)
+        out({"Stacks": [stack(name, status)]})
+    out({"Stacks": [stack(n, s) for n, s in st["stacks"].items()]})
+
+if key == "cloudformation create-change-set":
+    name, cs = flag("--stack-name"), flag("--change-set-name")
+    params = json.load(open(flag("--parameters").replace("file://", "")))
+    tpl = open(flag("--template-body").replace("file://", "")).read()
+    if "Resources:" not in tpl: err("Template format error")
+    if flag("--change-set-type") == "CREATE": st["stacks"][name] = "REVIEW_IN_PROGRESS"
+    st["changesets"][name + "/" + cs] = {"params": {p["ParameterKey"]: p["ParameterValue"] for p in params}}
+    save(st); out({"Id": "arn:aws:cloudformation:ap-south-1:%s:changeSet/%s" % (ACCOUNT, cs)})
+
+if key == "cloudformation describe-change-set":
+    k = flag("--stack-name") + "/" + flag("--change-set-name")
+    if k not in st["changesets"]: err("ChangeSet [%s] does not exist" % flag("--change-set-name"))
+    changes = [("Add", "InstanceRole", "AWS::IAM::Role", ""), ("Add", "InstanceProfile", "AWS::IAM::InstanceProfile", ""),
+               ("Add", "SecurityGroup", "AWS::EC2::SecurityGroup", ""), ("Add", "Instance", "AWS::EC2::Instance", "False")]
+    out({"Status": "CREATE_COMPLETE", "Changes": [{"ResourceChange": {"Action": x, "LogicalResourceId": l, "ResourceType": t, "Replacement": r, "Scope": []}} for x, l, t, r in changes]})
+
+if key == "cloudformation delete-change-set":
+    st["changesets"].pop(flag("--stack-name") + "/" + flag("--change-set-name"), None); save(st); out({})
+
+if key == "cloudformation execute-change-set":
+    name = flag("--stack-name")
+    st["stacks"][name] = "CREATE_IN_PROGRESS" if st["stacks"].get(name) == "REVIEW_IN_PROGRESS" else "UPDATE_IN_PROGRESS"
+    st["seen"][name] = 0; save(st); out({})
+
+if key == "cloudformation delete-stack":
+    name = flag("--stack-name")
+    if st["stacks"].get(name) == "REVIEW_IN_PROGRESS": del st["stacks"][name]
+    else: st["stacks"][name] = "DELETE_IN_PROGRESS"; st["seen"][name] = 0
+    save(st); out({})
+
+if key == "cloudformation list-stack-resources":
+    out({"StackResourceSummaries": [{"LogicalResourceId": l, "ResourceType": t, "PhysicalResourceId": p} for l, t, p in
+        [("Instance", "AWS::EC2::Instance", "i-0aaa1111bbbb2222c"), ("InstanceRole", "AWS::IAM::Role", "forgeline-demo-InstanceRole-X"),
+         ("SecurityGroup", "AWS::EC2::SecurityGroup", "sg-0123456789abcdef0")]]})
+
+if key == "ec2 describe-instances":
+    want = flag("--instance-ids")
+    res = []
+    for iid, v in st["instances"].items():
+        if want and want != iid: continue
+        tags = [{"Key": "Name", "Value": v["name"]}] + ([{"Key": "aws:cloudformation:stack-name", "Value": v["stack"]}] if v["stack"] else [])
+        res.append({"Instances": [{"InstanceId": iid, "InstanceType": v["type"], "Architecture": "arm64", "PrivateIpAddress": v["ip"],
+                                   "State": {"Name": v["state"]}, "Tags": tags}]})
+    if not res: err("InvalidInstanceID.NotFound")
+    out({"Reservations": res})
+
+if key in ("ec2 start-instances", "ec2 stop-instances", "ec2 reboot-instances"):
+    iid = flag("--instance-ids")
+    if key != "ec2 reboot-instances": st["instances"][iid]["state"] = "running" if "start" in key else "stopped"
+    save(st); out({})
+
+if key == "ce get-cost-and-usage":
+    out({"ResultsByTime": [{"Groups": [{"Keys": [k], "Metrics": {"UnblendedCost": {"Amount": v, "Unit": "USD"}}} for k, v in
+        [("Amazon Elastic Compute Cloud - Compute", "9.62"), ("EC2 - Other", "1.84"), ("Amazon Virtual Private Cloud", "3.65"), ("AWS Key Management Service", "0.50")]]}]})
+
+err("fake-aws: unsupported call: " + key)
