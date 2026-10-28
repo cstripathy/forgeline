@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/pipeline"
-	"github.com/cstripathy/forgeline/internal/scheduler"
-	"github.com/cstripathy/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/pipeline"
+	"github.com/forgelinehq/forgeline/internal/scheduler"
+	"github.com/forgelinehq/forgeline/internal/store"
 )
 
 // storeTimeout bounds each bookkeeping write so a stuck database cannot hang a run forever.

@@ -36,4 +36,4 @@ already has credentials (for example an instance role). Sign in on the server wi
 ![Preview]({{ '/console/23-deploy-preview.png' | relative_url }})
 ![Done]({{ '/console/25-change-succeeded.png' | relative_url }})
 
-**Verified:** reading a real account, the real device-code sign-in and the real credential step, and rejecting a change on a real account. Executing an approved change was run on a real account: a deploy and a delete of the demo stack, each approved by a second actor in the browser. Design: [note 009](https://github.com/cstripathy/forgeline/blob/main/docs/design/009-aws-signin.md).
+**Verified:** reading a real account, the real device-code sign-in and the real credential step, and rejecting a change on a real account. Executing an approved change was run on a real account: a deploy and a delete of the demo stack, each approved by a second actor in the browser. Design: [note 009](https://github.com/forgelinehq/forgeline/blob/main/docs/design/009-aws-signin.md).

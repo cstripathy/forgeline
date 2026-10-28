@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/cstripathy/forgeline/internal/executor"
+	"github.com/forgelinehq/forgeline/internal/executor"
 )
 
 // copyExample copies examples/hello into a temp dir and returns the pipeline path.

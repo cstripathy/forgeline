@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/docstore"
-	"github.com/cstripathy/forgeline/internal/pipeline"
-	"github.com/cstripathy/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/docstore"
+	"github.com/forgelinehq/forgeline/internal/pipeline"
+	"github.com/forgelinehq/forgeline/internal/store"
 )
 
 const (

@@ -21,8 +21,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/pipeline"
-	"github.com/cstripathy/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/pipeline"
+	"github.com/forgelinehq/forgeline/internal/store"
 )
 
 // GitHubConfig turns on the GitHub webhook trigger and commit status reporting. See

@@ -120,4 +120,4 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 ## The pipeline schema
 
 `forgeline schema` prints the JSON Schema; the same file is in the repository at
-[`schema/pipeline.v1alpha1.schema.json`](https://github.com/cstripathy/forgeline/blob/main/schema/pipeline.v1alpha1.schema.json).
+[`schema/pipeline.v1alpha1.schema.json`](https://github.com/forgelinehq/forgeline/blob/main/schema/pipeline.v1alpha1.schema.json).

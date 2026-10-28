@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/store"
-	"github.com/cstripathy/forgeline/internal/version"
+	"github.com/forgelinehq/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/version"
 )
 
 const (

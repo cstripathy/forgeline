@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/executor"
+	"github.com/forgelinehq/forgeline/internal/executor"
 )
 
 const cliToken = "cli-test-token-0123456789"

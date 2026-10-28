@@ -8,7 +8,7 @@ progressive delivery (canary and blue-green) in one tool you can run yourself.
 > GitHub trigger. The trust model is partly built. See [docs/ROADMAP.md](docs/ROADMAP.md) for what
 > is done and what is not.
 
-Documentation: https://cstripathy.github.io/forgeline/ (get started, guides with screenshots, API reference).
+Documentation: https://forgelinehq.github.io/forgeline/ (get started, guides with screenshots, API reference).
 
 ## Try the console
 

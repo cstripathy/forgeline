@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/client"
-	"github.com/cstripathy/forgeline/internal/server"
+	"github.com/forgelinehq/forgeline/internal/client"
+	"github.com/forgelinehq/forgeline/internal/server"
 )
 
 const submitHelp = `usage: forgeline submit [--server URL] [--source DIR | --no-source] [--wait] <pipeline.yaml>

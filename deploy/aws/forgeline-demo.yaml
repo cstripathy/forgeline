@@ -7,7 +7,7 @@ Description: >-
 Parameters:
   GitRef:
     Type: String
-    Description: Full commit SHA of github.com/cstripathy/forgeline to build and run.
+    Description: Full commit SHA of github.com/forgelinehq/forgeline to build and run.
     AllowedPattern: "^[0-9a-f]{40}$"
   VpcId:
     Type: AWS::EC2::VPC::Id
@@ -96,7 +96,7 @@ Resources:
           tar -C /usr/local -xzf /tmp/go.tgz
 
           # Build the pinned commit.
-          git clone https://github.com/cstripathy/forgeline /opt/forgeline-src
+          git clone https://github.com/forgelinehq/forgeline /opt/forgeline-src
           git -C /opt/forgeline-src checkout ${GitRef}
           cd /opt/forgeline-src
           HOME=/root GOCACHE=/tmp/gocache GOPATH=/tmp/gopath /usr/local/go/bin/go build -o /usr/local/bin/forgeline ./cmd/forgeline

@@ -34,4 +34,4 @@ Pre-alpha. It is built to be tried on a laptop. Read [what is not checked yet]({
 3. [Write pipelines]({{ '/guides/pipelines/' | relative_url }}), [connect GitHub]({{ '/guides/connect-github/' | relative_url }}), [connect AWS]({{ '/guides/connect-aws/' | relative_url }}).
 4. [API reference]({{ '/api/' | relative_url }}) for scripts and CI.
 
-Design notes (why it works the way it does) are in [`docs/design`](https://github.com/cstripathy/forgeline/tree/main/docs/design).
+Design notes (why it works the way it does) are in [`docs/design`](https://github.com/forgelinehq/forgeline/tree/main/docs/design).

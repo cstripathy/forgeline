@@ -6,9 +6,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/cstripathy/forgeline/internal/executor"
-	"github.com/cstripathy/forgeline/internal/pipeline"
-	"github.com/cstripathy/forgeline/internal/version"
+	"github.com/forgelinehq/forgeline/internal/executor"
+	"github.com/forgelinehq/forgeline/internal/pipeline"
+	"github.com/forgelinehq/forgeline/internal/version"
 )
 
 const usage = `Forgeline: an open-source delivery platform where AI agents run safely.

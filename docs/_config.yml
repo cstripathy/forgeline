@@ -8,7 +8,7 @@ permalink: pretty
 search_enabled: true
 heading_anchors: true
 aux_links:
-  GitHub: https://github.com/cstripathy/forgeline
+  GitHub: https://github.com/forgelinehq/forgeline
 # Notes written for people working on Forgeline stay in the repo but not in the site's menu.
 exclude:
   - PLAN.md

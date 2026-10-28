@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cstripathy/forgeline/internal/executor"
+	"github.com/forgelinehq/forgeline/internal/executor"
 )
 
 func write(t *testing.T, root, rel, content string) {

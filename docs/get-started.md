@@ -13,7 +13,7 @@ nav_order: 2
 ## 1. Build and start
 
 ```sh
-git clone https://github.com/cstripathy/forgeline && cd forgeline
+git clone https://github.com/forgelinehq/forgeline && cd forgeline
 make run-local
 ```
 
