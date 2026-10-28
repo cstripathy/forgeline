@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -661,8 +663,10 @@ func TestUIIsServedWithStrictHeaders(t *testing.T) {
 	h := newHarness(t, &executor.Fake{})
 	tests := []struct{ path, wantType, wantBody string }{
 		{"/", "text/html", "<title>Forgeline</title>"},
-		{"/ui/app.js", "text/javascript", "Forgeline web UI"},
-		{"/ui/style.css", "text/css", "--bg"},
+		{"/ui/app.js", "text/javascript", "Forgeline web console"},
+		{"/ui/app.css", "text/css", "tailwindcss v4.3.3"},
+		{"/ui/lib/dom.js", "text/javascript", "no innerHTML anywhere"},
+		{"/ui/pages/infra.js", "text/javascript", "Cloud changes"},
 	}
 	for _, tt := range tests {
 		resp, body := h.do("GET", tt.path, "", nil, "") // the page itself needs no token; the API does
@@ -712,5 +716,57 @@ func TestUIHasNoInlineScriptOrStyle(t *testing.T) {
 		if strings.Contains(line, "<script") && !strings.Contains(line, `src="`) {
 			t.Errorf("inline script: %s", line)
 		}
+	}
+}
+
+func TestUIAssetsRevalidateWithAnETag(t *testing.T) {
+	h := newHarness(t, &executor.Fake{})
+	resp, body := h.do("GET", "/ui/app.js", "", nil, "")
+	tag := resp.Header.Get("ETag")
+	if tag == "" || len(body) == 0 {
+		t.Fatalf("no ETag on app.js (status %d)", resp.StatusCode)
+	}
+	req, _ := http.NewRequest("GET", h.http.URL+"/ui/app.js", nil)
+	req.Header.Set("If-None-Match", tag)
+	r2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2.Body.Close()
+	if r2.StatusCode != http.StatusNotModified {
+		t.Errorf("matching If-None-Match = %d, want 304", r2.StatusCode)
+	}
+	if r2.Header.Get("Content-Security-Policy") == "" {
+		t.Error("a 304 must still carry the security headers")
+	}
+	req.Header.Set("If-None-Match", `"stale"`)
+	r3, _ := http.DefaultClient.Do(req)
+	r3.Body.Close()
+	if r3.StatusCode != 200 {
+		t.Errorf("stale If-None-Match = %d, want 200", r3.StatusCode)
+	}
+}
+
+// The console builds all its markup from text nodes. If innerHTML or friends ever appear in the
+// scripts, untrusted names and log output could become markup.
+func TestConsoleScriptsNeverUseMarkupInjection(t *testing.T) {
+	var bad []string
+	fs.WalkDir(uiFiles, "ui", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".js") {
+			return nil
+		}
+		b, _ := uiFiles.ReadFile(p)
+		for n, line := range strings.Split(string(b), "\n") {
+			code, _, _ := strings.Cut(line, "//")
+			for _, banned := range []string{".innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function(", ".setAttribute('style'", `.setAttribute("style"`} {
+				if strings.Contains(code, banned) {
+					bad = append(bad, fmt.Sprintf("%s:%d uses %s", p, n+1, banned))
+				}
+			}
+		}
+		return nil
+	})
+	if len(bad) > 0 {
+		t.Fatalf("markup injection or CSP-breaking calls in the console:\n%s", strings.Join(bad, "\n"))
 	}
 }

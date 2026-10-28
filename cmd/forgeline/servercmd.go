@@ -13,14 +13,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/cstripathy/forgeline/internal/docstore"
 	"github.com/cstripathy/forgeline/internal/executor"
 	"github.com/cstripathy/forgeline/internal/secrets"
 	"github.com/cstripathy/forgeline/internal/server"
 	"github.com/cstripathy/forgeline/internal/store"
+	"github.com/cstripathy/forgeline/internal/vault"
 )
 
 const serverHelp = `usage: forgeline server [--listen ADDR] [--data-dir DIR] [--max-runs N] [--parallel N]
@@ -30,7 +33,11 @@ Environment:
   FORGELINE_TOKEN         bearer token clients must send (at least 16 characters). If unset and the
                           listen address is loopback, a random token is generated for this run and
                           printed; on any other address the token is required.
-  FORGELINE_DATABASE_URL  Postgres connection URL; if unset, runs are kept in memory and lost on exit
+  FORGELINE_DATABASE_URL  Postgres connection URL; if unset, runs are kept in memory and lost on exit.
+                          Accounts, pipelines, secrets and settings are stored in the same database, or
+                          in <data-dir>/console.json when there is none
+  FORGELINE_MASTER_KEY    32 random bytes as base64 (head -c 32 /dev/urandom | base64) that encrypt
+                          secrets stored by the console. If unset, a key file is created in the data dir
   FORGELINE_SECRET_<NAME> a secret that steps can request with permissions.secrets: [NAME]. Values
                           are at least 8 characters, never stored, and masked in logs. Runs started
                           by GitHub receive no secrets yet.
@@ -92,6 +99,8 @@ func runServer(ctx context.Context, args []string, stdout, stderr io.Writer, ex 
 	}
 
 	var st store.Store
+	var docs docstore.Store
+	storeKind := "memory"
 	if url := getenv("FORGELINE_DATABASE_URL"); url != "" {
 		pg, err := store.OpenPostgres(ctx, url)
 		if err != nil {
@@ -99,11 +108,47 @@ func runServer(ctx context.Context, args []string, stdout, stderr io.Writer, ex 
 			return 1
 		}
 		st = pg
+		pgDocs, err := docstore.OpenPostgres(ctx, url)
+		if err != nil {
+			fmt.Fprintf(stderr, "forgeline: %v\n", err)
+			return 1
+		}
+		docs = pgDocs
+		storeKind = "postgres"
 	} else {
 		fmt.Fprintln(stderr, "forgeline: FORGELINE_DATABASE_URL is not set; keeping runs in memory (lost on exit)")
 		st = store.NewMemory()
+		if err := os.MkdirAll(*dataDir, 0o700); err != nil {
+			fmt.Fprintf(stderr, "forgeline: %v\n", err)
+			return 1
+		}
+		fileDocs, err := docstore.OpenFile(filepath.Join(*dataDir, "console.json"))
+		if err != nil {
+			fmt.Fprintf(stderr, "forgeline: %v\n", err)
+			return 1
+		}
+		docs = fileDocs
+		fmt.Fprintf(stderr, "forgeline: accounts, pipelines and settings are kept in %s\n", filepath.Join(*dataDir, "console.json"))
 	}
 	defer st.Close()
+	defer docs.Close()
+
+	keyBytes, keyCreated, err := vault.LoadOrCreateKey(getenv("FORGELINE_MASTER_KEY"), filepath.Join(*dataDir, "master.key"))
+	if err != nil {
+		fmt.Fprintf(stderr, "forgeline: master key: %v\n", err)
+		return 1
+	}
+	keySource := "file"
+	if getenv("FORGELINE_MASTER_KEY") != "" {
+		keySource = "env"
+	} else if keyCreated {
+		fmt.Fprintf(stderr, "forgeline: created a master key at %s to encrypt stored secrets. It sits next to the data it protects; for a real deployment set FORGELINE_MASTER_KEY from a secret manager instead.\n", filepath.Join(*dataDir, "master.key"))
+	}
+	vlt, err := vault.New(keyBytes)
+	if err != nil {
+		fmt.Fprintf(stderr, "forgeline: master key: %v\n", err)
+		return 1
+	}
 
 	var gh *server.GitHubConfig
 	secret, ghToken := getenv("FORGELINE_GITHUB_WEBHOOK_SECRET"), getenv("FORGELINE_GITHUB_TOKEN")
@@ -119,6 +164,7 @@ func runServer(ctx context.Context, args []string, stdout, stderr io.Writer, ex 
 	srv, err := server.New(server.Config{
 		Store: st, Executor: ex, Token: token, DataDir: *dataDir,
 		MaxRuns: *maxRuns, Parallelism: *parallel, GitHub: gh, Secrets: stepSecrets,
+		Docs: docs, Vault: vlt, StoreKind: storeKind, KeySource: keySource,
 		Logger: slog.New(slog.NewTextHandler(stderr, nil)),
 	})
 	if err != nil {

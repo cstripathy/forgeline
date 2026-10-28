@@ -40,6 +40,15 @@ func newRun(t *testing.T, s Store, steps ...string) Run {
 }
 
 func testCreateGet(t *testing.T, s Store) {
+	for _, trig := range []Trigger{TriggerAPI, TriggerGitHub, TriggerUI} {
+		r, err := s.CreateRun(context.Background(), Run{PipelineName: "t", PipelineYAML: "y", Trigger: trig}, []string{"a"})
+		if err != nil {
+			t.Fatalf("trigger %q: %v", trig, err)
+		}
+		if got, _, _ := s.GetRun(context.Background(), r.ID); got.Trigger != trig {
+			t.Fatalf("trigger %q came back as %q", trig, got.Trigger)
+		}
+	}
 	ctx := context.Background()
 	in := Run{PipelineName: "demo", PipelineYAML: "yaml text", SourceRepo: "o/r", SourceRef: "refs/heads/main",
 		SourceSHA: "abc", Trigger: TriggerGitHub, Status: RunSucceeded}

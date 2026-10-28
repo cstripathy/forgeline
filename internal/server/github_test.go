@@ -66,6 +66,21 @@ func (g *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/") // repos owner repo kind sha
+	if len(parts) == 3 && parts[0] == "repos" && r.Method == http.MethodGet {
+		repo := parts[1] + "/" + parts[2]
+		g.mu.Lock()
+		known := false
+		for k := range g.tarballs {
+			known = known || strings.HasPrefix(k, repo+"@")
+		}
+		g.mu.Unlock()
+		if !known {
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+			return
+		}
+		w.Write([]byte(`{"full_name":"` + repo + `"}`))
+		return
+	}
 	if len(parts) != 5 || parts[0] != "repos" {
 		http.NotFound(w, r)
 		return

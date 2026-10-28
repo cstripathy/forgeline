@@ -8,6 +8,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,10 +16,13 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/cstripathy/forgeline/internal/docstore"
 	"github.com/cstripathy/forgeline/internal/executor"
 	"github.com/cstripathy/forgeline/internal/store"
+	"github.com/cstripathy/forgeline/internal/vault"
 )
 
 // MinTokenLength is the shortest bearer token the server accepts.
@@ -48,6 +52,15 @@ type Config struct {
 	Secrets map[string]string
 	// GitHub, if set, enables POST /webhooks/github and commit status reporting.
 	GitHub *GitHubConfig
+	// StoreKind and KeySource are shown on the infrastructure page: "memory" or "postgres" for
+	// the run store, and "env", "file" or "ephemeral" for where the vault key came from.
+	StoreKind string
+	KeySource string
+	// Docs keeps the console's accounts, pipelines, secrets and audit log. Nil means an
+	// in-memory store, which loses everything on exit.
+	Docs docstore.Store
+	// Vault encrypts console secrets. Nil means a random key for this process only.
+	Vault  *vault.Vault
 	Logger *slog.Logger
 }
 
@@ -68,6 +81,23 @@ type Server struct {
 
 	deliveries deliveryLog
 	checkouts  chan struct{} // bounds GitHub downloads in flight
+
+	docs     docstore.Store
+	vault    *vault.Vault
+	throttle throttle
+	setupMu  sync.Mutex // serialises first-run setup
+	userMu   sync.Mutex // serialises changes to accounts, for the last-admin rule
+	pipeMu   sync.Mutex // serialises pipeline edits, for the version check
+
+	started  time.Time
+	run      cmdRunner // runs docker and aws; replaced in tests
+	awsCache awsCache
+	cloud    cloudState
+
+	ghCfg        atomic.Pointer[GitHubConfig] // the active GitHub settings; nil means off
+	ghSource     atomic.Value                 // "flags" or "console"
+	ghMu         sync.Mutex                   // serialises changes to the GitHub settings
+	deliveryRing deliveryRing
 }
 
 // New validates cfg, prepares the data directory and returns a Server. Call Start to begin
@@ -118,14 +148,37 @@ func New(cfg Config) (*Server, error) {
 			return nil, fmt.Errorf("server: preparing data dir: %w", err)
 		}
 	}
+	if cfg.Docs == nil {
+		cfg.Docs = docstore.NewMemory()
+	}
+	if cfg.Vault == nil {
+		key := make([]byte, vault.KeySize)
+		if _, err := rand.Read(key); err != nil {
+			return nil, err
+		}
+		v, err := vault.New(key)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Vault = v
+	}
 	srv := &Server{
+		started: time.Now().UTC(), run: execRunner,
+		docs: cfg.Docs, vault: cfg.Vault,
 		cfg: cfg, log: cfg.Logger,
 		wake:          make(chan struct{}, cfg.MaxRuns),
 		ctls:          map[string]*runCtl{},
 		pendingCancel: map[string]bool{},
 	}
+	maxCheckouts := 4
 	if cfg.GitHub != nil {
-		srv.checkouts = make(chan struct{}, cfg.GitHub.MaxCheckouts)
+		maxCheckouts = cfg.GitHub.MaxCheckouts
+		srv.ghCfg.Store(cfg.GitHub)
+		srv.ghSource.Store("flags")
+	}
+	srv.checkouts = make(chan struct{}, maxCheckouts)
+	if err := srv.reloadGitHub(context.Background()); err != nil {
+		srv.log.Warn("the saved GitHub settings are not usable; GitHub triggers are off", "err", err)
 	}
 	return srv, nil
 }
@@ -136,7 +189,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Commit statuses of interrupted GitHub runs would stay "pending" forever, so note which
 	// runs are about to be failed before failing them.
 	var interrupted []store.Run
-	if s.cfg.GitHub != nil {
+	if s.gh() != nil {
 		recent, err := s.cfg.Store.ListRuns(ctx, store.ListOptions{Limit: 200})
 		if err != nil {
 			return fmt.Errorf("recovering interrupted runs: %w", err)
@@ -147,6 +200,7 @@ func (s *Server) Start(ctx context.Context) error {
 			}
 		}
 	}
+	s.failInterruptedChanges(ctx)
 	n, err := s.cfg.Store.FailInterruptedRuns(ctx, "server restarted")
 	if err != nil {
 		return fmt.Errorf("recovering interrupted runs: %w", err)

@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cstripathy/forgeline/internal/authn"
 	"github.com/cstripathy/forgeline/internal/pipeline"
 	"github.com/cstripathy/forgeline/internal/store"
 )
@@ -30,31 +29,56 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	mux.Handle("POST /v1/runs", s.auth(http.HandlerFunc(s.handleSubmit)))
-	mux.Handle("GET /v1/runs", s.auth(http.HandlerFunc(s.handleList)))
-	mux.Handle("GET /v1/runs/{id}", s.auth(http.HandlerFunc(s.handleGet)))
-	mux.Handle("POST /v1/runs/{id}/cancel", s.auth(http.HandlerFunc(s.handleCancel)))
-	mux.Handle("GET /v1/runs/{id}/steps/{step}/logs", s.auth(http.HandlerFunc(s.handleLogs)))
-	if s.cfg.GitHub != nil {
-		// No bearer token: GitHub cannot send one. The HMAC signature is the authentication.
-		mux.HandleFunc("POST /webhooks/github", s.handleGitHubWebhook)
-	}
-	return mux
-}
+	mux.Handle("POST /v1/runs", s.requireRole(authn.Developer, s.handleSubmit))
+	mux.Handle("GET /v1/runs", s.requireRole(authn.Viewer, s.handleList))
+	mux.Handle("GET /v1/runs/{id}", s.requireRole(authn.Viewer, s.handleGet))
+	mux.Handle("POST /v1/runs/{id}/cancel", s.requireRole(authn.Developer, s.handleCancel))
+	mux.Handle("GET /v1/runs/{id}/steps/{step}/logs", s.requireRole(authn.Viewer, s.handleLogs))
 
-// auth requires "Authorization: Bearer <token>". Both sides are hashed first so the
-// comparison takes the same time whatever the token's length or contents.
-func (s *Server) auth(next http.Handler) http.Handler {
-	want := sha256.Sum256([]byte(s.cfg.Token))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got := sha256.Sum256([]byte(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")))
-		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
-			w.Header().Set("WWW-Authenticate", "Bearer")
-			writeError(w, http.StatusUnauthorized, "missing or invalid bearer token")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	// Accounts and sessions. State, setup and login are open by design; setup needs the server token.
+	mux.HandleFunc("GET /v1/auth/state", s.handleAuthState)
+	mux.HandleFunc("POST /v1/auth/setup", s.handleSetup)
+	mux.HandleFunc("POST /v1/auth/login", s.handleLogin)
+	mux.Handle("POST /v1/auth/logout", s.requireRole(authn.Viewer, s.handleLogout))
+	mux.Handle("POST /v1/me/password", s.requireRole(authn.Viewer, s.handleChangeOwnPassword))
+	mux.Handle("GET /v1/users", s.requireRole(authn.Admin, s.handleListUsers))
+	mux.Handle("POST /v1/users", s.requireRole(authn.Admin, s.handleCreateUser))
+	mux.Handle("PATCH /v1/users/{id}", s.requireRole(authn.Admin, s.handleUpdateUser))
+	mux.Handle("DELETE /v1/users/{id}", s.requireRole(authn.Admin, s.handleDeleteUser))
+	mux.Handle("GET /v1/audit", s.requireRole(authn.Admin, s.handleAudit))
+
+	mux.Handle("GET /v1/overview", s.requireRole(authn.Viewer, s.handleOverview))
+	mux.Handle("POST /v1/pipelines/validate", s.requireRole(authn.Viewer, s.handleValidatePipeline))
+	mux.Handle("GET /v1/pipelines", s.requireRole(authn.Viewer, s.handleListPipelines))
+	mux.Handle("POST /v1/pipelines", s.requireRole(authn.Developer, s.handleCreatePipeline))
+	mux.Handle("GET /v1/pipelines/{id}", s.requireRole(authn.Viewer, s.handleGetPipeline))
+	mux.Handle("PUT /v1/pipelines/{id}", s.requireRole(authn.Developer, s.handleUpdatePipeline))
+	mux.Handle("DELETE /v1/pipelines/{id}", s.requireRole(authn.Admin, s.handleDeletePipeline))
+	mux.Handle("POST /v1/pipelines/{id}/run", s.requireRole(authn.Developer, s.handleRunPipeline))
+	mux.Handle("POST /v1/pipelines/{id}/versions/{version}/restore", s.requireRole(authn.Developer, s.handleRestorePipeline))
+	mux.Handle("GET /v1/infra/runtime", s.requireRole(authn.Viewer, s.handleRuntime))
+	mux.Handle("GET /v1/infra/aws", s.requireRole(authn.Viewer, s.handleAWS))
+	mux.Handle("GET /v1/infra/aws/cost", s.requireRole(authn.Developer, s.handleAWSCost))
+	mux.Handle("GET /v1/integrations/aws", s.requireRole(authn.Developer, s.handleGetAWSSettings))
+	mux.Handle("PUT /v1/integrations/aws", s.requireRole(authn.Admin, s.handlePutAWSSettings))
+	mux.Handle("GET /v1/cloud/catalog", s.requireRole(authn.Developer, s.handleCatalog))
+	mux.Handle("GET /v1/cloud/changes", s.requireRole(authn.Viewer, s.handleListChanges))
+	mux.Handle("POST /v1/cloud/changes", s.requireRole(authn.Developer, s.handlePropose))
+	mux.Handle("GET /v1/cloud/changes/{id}", s.requireRole(authn.Viewer, s.handleGetChange))
+	mux.Handle("POST /v1/cloud/changes/{id}/approve", s.requireRole(authn.Admin, s.handleApprove))
+	mux.Handle("POST /v1/cloud/changes/{id}/reject", s.requireRole(authn.Admin, s.handleReject))
+	mux.Handle("POST /v1/cloud/changes/{id}/cancel", s.requireRole(authn.Developer, s.handleCancelChange))
+	mux.Handle("GET /v1/secrets", s.requireRole(authn.Developer, s.handleListSecrets))
+	mux.Handle("PUT /v1/secrets/{name}", s.requireRole(authn.Admin, s.handlePutSecret))
+	mux.Handle("DELETE /v1/secrets/{name}", s.requireRole(authn.Admin, s.handleDeleteSecret))
+	// No bearer token: GitHub cannot send one. The HMAC signature is the authentication. The
+	// route always exists; it answers 404 until the integration is configured.
+	mux.HandleFunc("POST /webhooks/github", s.handleGitHubWebhook)
+	mux.Handle("GET /v1/integrations/github", s.requireRole(authn.Developer, s.handleGetGitHub))
+	mux.Handle("PUT /v1/integrations/github", s.requireRole(authn.Admin, s.handlePutGitHub))
+	mux.Handle("DELETE /v1/integrations/github", s.requireRole(authn.Admin, s.handleDeleteGitHub))
+	mux.Handle("POST /v1/integrations/github/test", s.requireRole(authn.Admin, s.handleTestGitHub))
+	return mux
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -123,29 +147,74 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var unpack func(ws string) error
+	if archive != "" {
+		unpack = func(ws string) error {
+			f, err := os.Open(archive)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			return ExtractTarGz(f, ws, s.cfg.MaxSourceBytes)
+		}
+	}
+	run, steps, apiErr := s.enqueue(r.Context(), yamlText, store.TriggerAPI, unpack)
+	if apiErr != nil {
+		apiErr.write(w)
+		return
+	}
+	p := principalFrom(r.Context())
+	s.recordRunMeta(r.Context(), run.ID, runMeta{Actor: p.Name})
+	s.auditReq(r, "run.start", "run/"+run.ID, run.PipelineName+" via API", true)
+	w.Header().Set("Location", "/v1/runs/"+run.ID)
+	writeJSON(w, http.StatusAccepted, s.decorate(r.Context(), runDetail(run, steps)))
+}
+
+// apiError is a failure that maps to an HTTP response.
+type apiError struct {
+	status int
+	body   ErrorJSON
+}
+
+func (e *apiError) write(w http.ResponseWriter) { writeJSON(w, e.status, e.body) }
+
+func badRequest(msg string) *apiError {
+	return &apiError{http.StatusBadRequest, ErrorJSON{Error: msg}}
+}
+
+// validationProblems turns a pipeline load or plan error into an API error body.
+func validationProblems(err error) *apiError {
+	var ve *pipeline.ValidationError
+	if errors.As(err, &ve) {
+		body := ErrorJSON{Error: "invalid pipeline"}
+		for _, fe := range ve.Errors {
+			body.Problems = append(body.Problems, ProblemJSON{Path: fe.Path, Msg: fe.Msg})
+		}
+		return &apiError{http.StatusBadRequest, body}
+	}
+	return badRequest(err.Error())
+}
+
+// enqueue validates a pipeline, prepares its workspace and queues a run. unpack, if set,
+// fills the workspace (an uploaded archive); it runs before any run exists, so a bad archive
+// creates nothing.
+func (s *Server) enqueue(ctx context.Context, yamlText string, trigger store.Trigger, unpack func(ws string) error) (store.Run, []store.Step, *apiError) {
+	internal := func(what string, err error) (store.Run, []store.Step, *apiError) {
+		s.log.Error(what, "err", err)
+		return store.Run{}, nil, &apiError{http.StatusInternalServerError, ErrorJSON{Error: "internal error: " + what}}
+	}
 	p, err := pipeline.Load(strings.NewReader(yamlText))
 	if err == nil {
 		_, err = pipeline.Plan(p)
 	}
 	if err != nil {
-		var ve *pipeline.ValidationError
-		if errors.As(err, &ve) {
-			body := ErrorJSON{Error: "invalid pipeline"}
-			for _, fe := range ve.Errors {
-				body.Problems = append(body.Problems, ProblemJSON{Path: fe.Path, Msg: fe.Msg})
-			}
-			writeJSON(w, http.StatusBadRequest, body)
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return store.Run{}, nil, validationProblems(err)
 	}
 
 	// Unpack into scratch space first so a bad archive creates no run.
 	ws, err := os.MkdirTemp(filepath.Join(s.cfg.DataDir, "tmp"), "ws-")
 	if err != nil {
-		s.internalError(w, "preparing workspace", err)
-		return
+		return internal("preparing workspace", err)
 	}
 	committed := false
 	defer func() {
@@ -153,21 +222,13 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 			os.RemoveAll(ws)
 		}
 	}()
-	if archive != "" {
-		f, err := os.Open(archive)
-		if err != nil {
-			s.internalError(w, "reading upload", err)
-			return
-		}
-		err = ExtractTarGz(f, ws, s.cfg.MaxSourceBytes)
-		f.Close()
+	if unpack != nil {
+		err := unpack(ws)
 		if errors.Is(err, ErrBadArchive) {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
+			return store.Run{}, nil, badRequest(err.Error())
 		}
 		if err != nil {
-			s.internalError(w, "unpacking source", err)
-			return
+			return internal("unpacking source", err)
 		}
 	}
 
@@ -175,17 +236,13 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	for i, st := range p.Steps {
 		stepIDs[i] = st.ID
 	}
-	run, err := s.cfg.Store.CreateRun(r.Context(), store.Run{
-		PipelineName: p.Name, PipelineYAML: yamlText, Trigger: store.TriggerAPI,
-	}, stepIDs)
+	run, err := s.cfg.Store.CreateRun(ctx, store.Run{PipelineName: p.Name, PipelineYAML: yamlText, Trigger: trigger}, stepIDs)
 	if err != nil {
-		s.internalError(w, "creating run", err)
-		return
+		return internal("creating run", err)
 	}
 	if err := os.Rename(ws, s.workspace(run.ID)); err != nil {
-		s.internalError(w, "placing workspace", err)
 		s.failQueued(run.ID, "could not place workspace")
-		return
+		return internal("placing workspace", err)
 	}
 	committed = true
 
@@ -193,13 +250,11 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	case s.wake <- struct{}{}:
 	default:
 	}
-	got, steps, err := s.cfg.Store.GetRun(r.Context(), run.ID)
+	got, steps, err := s.cfg.Store.GetRun(ctx, run.ID)
 	if err != nil {
-		s.internalError(w, "reading run", err)
-		return
+		return internal("reading run", err)
 	}
-	w.Header().Set("Location", "/v1/runs/"+run.ID)
-	writeJSON(w, http.StatusAccepted, runDetail(got, steps))
+	return got, steps, nil
 }
 
 // saveUpload copies the source part to scratch space, enforcing the size limit.
@@ -261,9 +316,18 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "listing runs", err)
 		return
 	}
+	if name := r.URL.Query().Get("pipeline"); name != "" {
+		kept := runs[:0:0]
+		for _, run := range runs {
+			if run.PipelineName == name {
+				kept = append(kept, run)
+			}
+		}
+		runs = kept
+	}
 	out := ListJSON{Runs: make([]RunJSON, len(runs))}
 	for i, run := range runs {
-		out.Runs[i] = runJSON(run, nil)
+		out.Runs[i] = s.decorate(r.Context(), runJSON(run, nil))
 	}
 	limit := opts.Limit
 	if limit <= 0 {
@@ -285,7 +349,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "reading run", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, runDetail(run, steps))
+	writeJSON(w, http.StatusOK, s.decorate(r.Context(), runDetail(run, steps)))
 }
 
 // handleCancel is idempotent: canceling a finished run returns it unchanged.

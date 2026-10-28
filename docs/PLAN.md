@@ -271,6 +271,21 @@ with their status, five slices, and three decisions for the maintainer.
 - Slice 4, audit log: not started.
 - Slice 5, resource limits and capability drop: not started; waits on a compatibility decision.
 
+## Web console (design note 006: built)
+
+Design: [docs/design/006-console.md](design/006-console.md). Pictures: [docs/console](console/README.md).
+
+- Storage and accounts: `internal/docstore` (memory, file or Postgres), `internal/vault` (AES-GCM),
+  `internal/authn` (PBKDF2, roles, sessions); first-run setup needs the server token; cookie
+  sessions with a CSRF header and origin check; throttled login; last-administrator rule; audit log.
+- Pipelines (versioned, validated with a graph preview), a write-only secrets vault, the GitHub
+  integration configured at runtime, infrastructure pages (Docker host, AWS read-only), and
+  cloud changes that need a different administrator's approval.
+- Front end: Tailwind v4 from the standalone CLI (`make css`, checked by `make css-check`), plain
+  ES modules, no innerHTML anywhere (a test enforces it), strict CSP.
+- Not checked: a change executed against a real AWS account, the real GitHub API, TLS, several
+  server processes on one database. The list is in the design note.
+
 ## After M3 (outline only)
 
 M4 security gates, M5 progressive delivery, M6 AI agents and M7 migration are in the roadmap.

@@ -288,7 +288,11 @@ func (d *deliveryLog) forget(id string) {
 // handleGitHubWebhook authenticates by signature only. The signature is checked before the
 // payload is parsed, and nothing about an unsigned request is acted on.
 func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
-	gh := s.cfg.GitHub
+	gh := s.gh()
+	if gh == nil {
+		writeError(w, http.StatusNotFound, "the GitHub integration is not configured")
+		return
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWebhookBody))
 	if err != nil {
 		s.badBody(w, err)
@@ -296,12 +300,14 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validSignature(gh.WebhookSecret, r.Header.Get("X-Hub-Signature-256"), body) {
 		s.log.Warn("github webhook: rejected a request with a missing or invalid signature", "remote", r.RemoteAddr)
+		s.deliveryRing.add(DeliveryInfo{Event: r.Header.Get("X-GitHub-Event"), Outcome: "rejected", Detail: "missing or invalid signature"})
 		writeError(w, http.StatusUnauthorized, "missing or invalid signature")
 		return
 	}
 
 	event := r.Header.Get("X-GitHub-Event")
 	if event == "ping" {
+		s.deliveryRing.add(DeliveryInfo{Event: "ping", Outcome: "ok", Detail: "GitHub can reach this server and the secret matches"})
 		writeJSON(w, http.StatusOK, map[string]string{"status": "pong"})
 		return
 	}
@@ -312,18 +318,22 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	if trig == nil {
 		s.log.Info("github webhook: ignored", "event", event, "reason", reason)
+		s.deliveryRing.add(DeliveryInfo{Event: event, Outcome: "ignored", Detail: reason})
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "reason": reason})
 		return
 	}
 
 	delivery := r.Header.Get("X-GitHub-Delivery")
 	if delivery != "" && !s.deliveries.add(delivery) {
+		s.deliveryRing.add(DeliveryInfo{ID: delivery, Event: event, Repo: trig.Repo, Ref: trig.Ref, SHA: trig.SHA, Outcome: "ignored", Detail: "duplicate delivery"})
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "reason": "duplicate delivery"})
 		return
 	}
+	s.deliveryRing.add(DeliveryInfo{ID: delivery, Event: event, Repo: trig.Repo, Ref: trig.Ref, SHA: trig.SHA, Outcome: "accepted", Detail: "downloading the commit"})
 	select {
 	case s.checkouts <- struct{}{}:
 	default:
+		s.deliveryRing.update(delivery, "busy", "too many commits are being downloaded; redeliver in a moment", "")
 		s.deliveries.forget(delivery)
 		w.Header().Set("Retry-After", "30")
 		writeError(w, http.StatusServiceUnavailable, "too many commits are being downloaded; redeliver in a moment")
@@ -336,7 +346,7 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer s.wg.Done()
 		defer func() { <-s.checkouts }()
-		if !s.startGitHubRun(*trig) {
+		if !s.startGitHubRun(*trig, delivery) {
 			s.deliveries.forget(delivery)
 		}
 	}()
@@ -346,13 +356,18 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 // startGitHubRun downloads the commit, validates its pipeline, and queues a run. It
 // reports whether a run was created. Every failure is also posted as a commit status
 // of "error", because a webhook caller has already been answered.
-func (s *Server) startGitHubRun(t ghTrigger) bool {
+func (s *Server) startGitHubRun(t ghTrigger, delivery string) bool {
 	ctx, cancel := context.WithTimeout(s.baseContext(), checkoutTimeout)
 	defer cancel()
 	fail := func(descr string, err error) bool {
 		s.log.Warn("github run not started", "repo", t.Repo, "sha", t.SHA, "why", descr, "err", err)
+		s.deliveryRing.update(delivery, "failed", descr, "")
 		s.postStatus(t.Repo, t.SHA, "error", descr, "")
 		return false
+	}
+	gh := s.gh()
+	if gh == nil {
+		return fail("The GitHub integration was turned off", nil)
 	}
 
 	ws, err := os.MkdirTemp(filepath.Join(s.cfg.DataDir, "tmp"), "ws-")
@@ -374,9 +389,9 @@ func (s *Server) startGitHubRun(t ghTrigger) bool {
 		s.log.Info("github checkout skipped entries that are not files or directories", "repo", t.Repo, "sha", t.SHA, "count", skipped)
 	}
 
-	text, err := os.ReadFile(filepath.Join(ws, s.cfg.GitHub.PipelineFile))
+	text, err := os.ReadFile(filepath.Join(ws, gh.PipelineFile))
 	if err != nil {
-		return fail(fmt.Sprintf("No %s in this commit", s.cfg.GitHub.PipelineFile), err)
+		return fail(fmt.Sprintf("No %s in this commit", gh.PipelineFile), err)
 	}
 	p, err := pipeline.Load(bytes.NewReader(text))
 	if err == nil {
@@ -406,13 +421,19 @@ func (s *Server) startGitHubRun(t ghTrigger) bool {
 	case s.wake <- struct{}{}:
 	default:
 	}
+	s.recordRunMeta(ctx, run.ID, runMeta{Actor: "github"})
+	s.audit(ctx, Principal{Name: "github"}, "", "run.start", "run/"+run.ID, fmt.Sprintf("%s@%.7s (%s)", t.Repo, t.SHA, p.Name), true)
+	s.deliveryRing.update(delivery, "run started", p.Name, run.ID)
 	s.postStatus(t.Repo, t.SHA, "pending", "Run queued", run.ID)
 	return true
 }
 
 // fetchCommit downloads the repository at sha through the tarball API and unpacks it into dst.
 func (s *Server) fetchCommit(ctx context.Context, repo, sha, dst string) (skipped int, err error) {
-	gh := s.cfg.GitHub
+	gh := s.gh()
+	if gh == nil {
+		return 0, errors.New("the GitHub integration was turned off")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, gh.APIBase+"/repos/"+repo+"/tarball/"+sha, nil)
 	if err != nil {
 		return 0, err
@@ -437,7 +458,9 @@ func (s *Server) fetchCommit(ctx context.Context, repo, sha, dst string) (skippe
 }
 
 func (s *Server) githubHeaders(req *http.Request) {
-	req.Header.Set("Authorization", "Bearer "+s.cfg.GitHub.Token)
+	if gh := s.gh(); gh != nil {
+		req.Header.Set("Authorization", "Bearer "+gh.Token)
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "forgeline")
@@ -445,7 +468,10 @@ func (s *Server) githubHeaders(req *http.Request) {
 
 // postStatus reports a commit status. Failure is logged and never changes a run's result.
 func (s *Server) postStatus(repo, sha, state, descr, runID string) {
-	gh := s.cfg.GitHub
+	gh := s.gh()
+	if gh == nil {
+		return
+	}
 	body := map[string]string{
 		"state": state, "context": statusContext, "description": truncate(descr, maxStatusDescrLen),
 	}
@@ -478,7 +504,7 @@ func (s *Server) postStatus(repo, sha, state, descr, runID string) {
 
 // reportFinished posts the final commit status for a run that came from GitHub.
 func (s *Server) reportFinished(run store.Run, status store.RunStatus, reason string) {
-	if s.cfg.GitHub == nil || run.Trigger != store.TriggerGitHub || run.SourceRepo == "" || run.SourceSHA == "" {
+	if s.gh() == nil || run.Trigger != store.TriggerGitHub || run.SourceRepo == "" || run.SourceSHA == "" {
 		return
 	}
 	state, descr := "error", "Run canceled"

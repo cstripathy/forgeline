@@ -14,3 +14,4 @@ examples/*/out/
 forgeline-data/
 .forgeline-server/
 .playwright-mcp/
+.tools/

@@ -10,16 +10,20 @@ import (
 
 // RunJSON is the API representation of a run.
 type RunJSON struct {
-	ID         string     `json:"id"`
-	Pipeline   string     `json:"pipeline"`
-	Status     string     `json:"status"`
-	Reason     string     `json:"reason,omitempty"`
-	Trigger    string     `json:"trigger"`
-	Source     *SourceRef `json:"source,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
-	Steps      []StepJSON `json:"steps,omitempty"`
+	ID       string `json:"id"`
+	Pipeline string `json:"pipeline"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason,omitempty"`
+	Trigger  string `json:"trigger"`
+	// TriggeredBy is the person (or "token") who started the run, when the console knows.
+	TriggeredBy     string     `json:"triggered_by,omitempty"`
+	PipelineID      string     `json:"pipeline_id,omitempty"`
+	PipelineVersion int        `json:"pipeline_version,omitempty"`
+	Source          *SourceRef `json:"source,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	StartedAt       *time.Time `json:"started_at,omitempty"`
+	FinishedAt      *time.Time `json:"finished_at,omitempty"`
+	Steps           []StepJSON `json:"steps,omitempty"`
 }
 
 // SourceRef says which repository state a run came from, when it came from one.

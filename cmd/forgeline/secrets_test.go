@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cstripathy/forgeline/internal/executor"
@@ -45,8 +46,11 @@ func setEnviron(t *testing.T, kv ...string) {
 
 // leaky prints the secret it was given and records who received secrets.
 func leaky(got map[string]map[string]string) *executor.Fake {
+	var mu sync.Mutex // steps in one layer run in parallel
 	return &executor.Fake{Handler: func(_ context.Context, s executor.StepRun, logs io.Writer) (executor.Result, error) {
+		mu.Lock()
 		got[s.ID] = s.Secrets
+		mu.Unlock()
 		for _, v := range s.Secrets {
 			io.WriteString(logs, "the token is "+v+"\n")
 		}
