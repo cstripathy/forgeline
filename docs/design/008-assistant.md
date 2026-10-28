@@ -17,6 +17,7 @@ Claude, without becoming the easiest way to leak a secret or change the platform
 | Untrusted data | Everything gathered is placed inside `<untrusted_context>` and the system prompt says it is data, never instructions. A closing tag inside the data is escaped so it cannot end the block |
 | Who | Developers and administrators ask; administrators configure. Twenty questions a minute per person |
 | Backends | `api`: the Anthropic Messages API with a key in the vault (internal name `forgeline.assistant.api_key`, never usable by a pipeline). `cli`: the `claude` program on the server, run with `--tools ""`, one turn, no session file, an empty scratch directory and a clean environment (only HOME and PATH), so the server's own token and keys never reach it |
+| `claude-token` backend | Added later. The same `claude` run as `cli`, but with the vault secret `CLAUDE_CODE_OAUTH_TOKEN` (the one agent steps use) as the only credential and a scratch `HOME`, so it does not depend on the server user's login and works on a server. Tested with a stub `claude` (token present, scratch home, no leak) and with the real program in the browser |
 | Which to choose | `api` for any server with more than one person. `cli` uses the server user's own Claude login for everyone who can ask, so it is offered only as a single-person (laptop) mode, with a warning on the settings card |
 | Audit | Every question is recorded with the page it was about and its length, not its text. Settings changes and tests are recorded |
 
