@@ -1,6 +1,7 @@
 import { h, icon, mount, pageHeader, relTime, absTime, spinner, errorBox, notice, toast, modal, confirmDialog, field, copyButton, emptyState } from '../lib/dom.js';
 import { get, put, post, del, atLeast } from '../lib/api.js';
 import { session } from '../app.js';
+import { assistantSettings } from './assistant_settings.js';
 
 const OUTCOME = { ok: 'pill-ok', 'run started': 'pill-ok', accepted: 'pill-run', ignored: 'pill-idle', rejected: 'pill-bad', failed: 'pill-bad', busy: 'pill-wait' };
 
@@ -102,7 +103,9 @@ export async function integrationsPage() {
               h('div', { class: 'flex items-center justify-between gap-2' }, h('span', { class: OUTCOME[d.outcome] || 'pill-idle' }, d.outcome), h('span', { class: 'muted text-xs', title: absTime(d.time) }, relTime(d.time))),
               h('div', { class: 'mt-1 text-xs' }, h('span', { class: 'font-medium' }, d.event), d.repo && h('span', { class: 'font-mono' }, ' ' + d.repo), d.sha && h('span', { class: 'font-mono muted' }, ' @' + d.sha.slice(0, 7))),
               d.detail && h('div', { class: 'muted text-xs' }, d.detail), d.run_id && h('a', { href: '#/runs/' + d.run_id, class: 'text-xs text-brand-600 hover:underline dark:text-brand-300' }, 'Open run')))
-            ) : emptyState('plug', 'No deliveries yet', 'They appear here once GitHub starts sending events.')))));
+            ) : emptyState('plug', 'No deliveries yet', 'They appear here once GitHub starts sending events.')))),
+      h('div', { id: 'assistant-card', class: 'mt-10' }));
+    assistantSettings(el.querySelector('#assistant-card'), admin);
   }
 
   function showSecret(out) {

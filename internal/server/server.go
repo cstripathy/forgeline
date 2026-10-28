@@ -92,7 +92,9 @@ type Server struct {
 	started  time.Time
 	run      cmdRunner // runs docker and aws; replaced in tests
 	awsCache awsCache
-	cloud    cloudState
+
+	assistLimiter rateLimiter // questions per person per minute
+	cloud         cloudState
 
 	ghCfg        atomic.Pointer[GitHubConfig] // the active GitHub settings; nil means off
 	ghSource     atomic.Value                 // "flags" or "console"

@@ -3,6 +3,7 @@ import { get, post, put, del, atLeast } from '../lib/api.js';
 import { navigate } from '../lib/router.js';
 import { dag } from '../lib/dag.js';
 import { session } from '../app.js';
+import { takeDraft } from '../lib/assistant.js';
 
 const STARTER = `version: v1alpha1
 name: my-pipeline
@@ -33,7 +34,8 @@ export async function pipelineEditorPage({ params }) {
   let secretNames = [];
   if (canEdit) { try { secretNames = (await get('/v1/secrets')).secrets.map(s => s.name); } catch { /* optional */ } }
 
-  let text = saved ? saved.yaml : STARTER;
+  const draft = isNew ? takeDraft() : null; // a pipeline the assistant drafted; it is only text until saved
+  let text = saved ? saved.yaml : (draft || STARTER);
   let desc = saved ? saved.description || '' : '';
   let baseVersion = saved ? saved.version : 0;
   let result = null, timer = null, seq = 0, busy = false;
