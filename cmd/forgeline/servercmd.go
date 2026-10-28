@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -161,8 +162,16 @@ func runServer(ctx context.Context, args []string, stdout, stderr io.Writer, ex 
 		return 2
 	}
 
+	// FORGELINE_DEV_SSO_BASE points AWS sign-in at a local stand-in (scripts/dev/fake-sso.py). It is
+	// for development only, so it must be a loopback address.
+	ssoBase := strings.TrimRight(envValue("FORGELINE_DEV_SSO_BASE"), "/")
+	if ssoBase != "" && !loopbackURL(ssoBase) {
+		fmt.Fprintln(stderr, "forgeline: FORGELINE_DEV_SSO_BASE must be an http://127.0.0.1 or http://localhost address")
+		return 2
+	}
 	srv, err := server.New(server.Config{
-		Store: st, Executor: ex, Token: token, DataDir: *dataDir,
+		SSOBase: ssoBase,
+		Store:   st, Executor: ex, Token: token, DataDir: *dataDir,
 		MaxRuns: *maxRuns, Parallelism: *parallel, GitHub: gh, Secrets: stepSecrets,
 		Docs: docs, Vault: vlt, StoreKind: storeKind, KeySource: keySource,
 		Logger: slog.New(slog.NewTextHandler(stderr, nil)),
@@ -253,4 +262,19 @@ func randomToken() (string, error) {
 // signalContext is cancelled on SIGINT or SIGTERM.
 func signalContext() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
+func loopbackURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost")
+}
+
+// envValue reads one variable through the replaceable environ, as the other settings do.
+func envValue(name string) string {
+	for _, kv := range environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == name {
+			return v
+		}
+	}
+	return ""
 }

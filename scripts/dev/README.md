@@ -39,3 +39,16 @@ the token to that value and the repository to `acme/shop`; saving shows a webhoo
 send a signed `push` event: the header `X-Hub-Signature-256: sha256=<HMAC-SHA256 of the body with
 the secret>`, `X-GitHub-Event: push`, and a body like
 `{"ref":"refs/heads/main","after":"<40 hex>","repository":{"full_name":"acme/shop"}}`.
+
+## `fake-sso.py`: a stand-in for AWS IAM Identity Center sign-in
+
+```sh
+python3 scripts/dev/fake-sso.py 9922
+FORGELINE_DEV_SSO_BASE=http://127.0.0.1:9922 PATH=/tmp/fake-aws/bin:$PATH \
+  ./bin/forgeline server --listen 127.0.0.1:8081 --data-dir /tmp/fl-sim
+```
+
+In the console open Infrastructure → AWS account → Connect, enter any `https://d-….awsapps.com/start`
+address, and open the link the page shows (it is served by this script) to approve. Then pick one
+of the two demo accounts. The server refuses `FORGELINE_DEV_SSO_BASE` unless it is a loopback
+address. Role credentials are fake, so use it together with `fake-aws`.

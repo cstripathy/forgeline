@@ -36,11 +36,21 @@ var stepContainerRE = regexp.MustCompile(`^forgeline-[0-9a-f]{12}$`)
 // cmdRunner runs an external program. It exists so tests can stand in for docker and aws.
 type cmdRunner func(ctx context.Context, name string, args ...string) (stdout []byte, stderr string, err error)
 
+type extraEnvKey struct{}
+
+// withExtraEnv attaches environment variables for one command run through a cmdRunner.
+func withExtraEnv(ctx context.Context, env []string) context.Context {
+	return context.WithValue(ctx, extraEnvKey{}, env)
+}
+
 func execRunner(ctx context.Context, name string, args ...string) ([]byte, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, cmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(cmd.Environ(), "AWS_PAGER=", "AWS_RETRY_MODE=standard", "AWS_MAX_ATTEMPTS=2")
+	if extra, ok := ctx.Value(extraEnvKey{}).([]string); ok {
+		cmd.Env = append(cmd.Env, extra...) // later entries win
+	}
 	var out, errb limitedBuffer
 	out.max, errb.max = maxCmdOutput, 1<<16
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -244,7 +254,7 @@ var (
 // awsArgs prefixes args with the profile and region from the console settings.
 func (s *Server) awsArgs(st awsSettings, args ...string) []string {
 	var pre []string
-	if st.Profile != "" {
+	if st.Profile != "" && st.Profile != ssoProfile { // the console's SSO sign-in uses credentials in the environment, not a profile
 		pre = append(pre, "--profile", st.Profile)
 	}
 	if st.Region != "" {
@@ -254,6 +264,13 @@ func (s *Server) awsArgs(st awsSettings, args ...string) []string {
 }
 
 func (s *Server) aws(ctx context.Context, st awsSettings, args ...string) ([]byte, error) {
+	if st.Profile == ssoProfile {
+		env, err := s.ssoEnv(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ctx = withExtraEnv(ctx, env)
+	}
 	out, errText, err := s.run(ctx, "aws", s.awsArgs(st, args...)...)
 	if err != nil {
 		return nil, awsError(errText, err, st.Profile)
@@ -609,8 +626,18 @@ func (s *Server) handlePutAWSSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "choose a region")
 		return
 	}
+	if req.Profile == ssoProfile {
+		writeError(w, http.StatusBadRequest, "that profile name is reserved for signing in from the console")
+		return
+	}
 	p := principalFrom(r.Context())
 	st := awsSettings{Enabled: req.Enabled, Profile: req.Profile, Region: req.Region, UpdatedAt: time.Now().UTC(), UpdatedBy: p.Name}
+	s.applyAWSSettings(w, r, st)
+}
+
+// applyAWSSettings proves the connection works, saves it and answers. It returns false when it
+// refused (and has already answered).
+func (s *Server) applyAWSSettings(w http.ResponseWriter, r *http.Request, st awsSettings) bool {
 	res := AWSSettingsResult{Enabled: st.Enabled, Profile: st.Profile, Region: st.Region}
 	if st.Enabled {
 		out, err := s.aws(r.Context(), st, "sts", "get-caller-identity")
@@ -619,7 +646,7 @@ func (s *Server) handlePutAWSSettings(w http.ResponseWriter, r *http.Request) {
 			res.Error = err.Error()
 			s.auditReq(r, "integration.aws.update", "integration/aws", "profile "+st.Profile+" refused: "+err.Error(), false)
 			writeJSON(w, http.StatusUnprocessableEntity, res)
-			return
+			return false
 		}
 		var id struct{ Account, Arn, UserId string }
 		json.Unmarshal(out, &id)
@@ -627,7 +654,7 @@ func (s *Server) handlePutAWSSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.docs.Put(r.Context(), kindSettings, idAWS, st); err != nil {
 		s.internalError(w, "saving the settings", err)
-		return
+		return false
 	}
 	s.awsCache.mu.Lock()
 	s.awsCache.key, s.awsCache.cost = "", nil
@@ -638,4 +665,5 @@ func (s *Server) handlePutAWSSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auditReq(r, "integration.aws.update", "integration/aws", detail, true)
 	writeJSON(w, http.StatusOK, res)
+	return true
 }
