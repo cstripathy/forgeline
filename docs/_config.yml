@@ -1,0 +1,13 @@
+title: Forgeline
+description: Delivery where AI agents run safely
+remote_theme: just-the-docs/just-the-docs@v0.10.0
+plugins:
+  - jekyll-remote-theme
+color_scheme: light
+search_enabled: true
+heading_anchors: true
+aux_links:
+  GitHub: https://github.com/cstripathy/forgeline
+# Notes written for people working on Forgeline stay in the repo but not in the site's menu.
+exclude:
+  - PLAN.md
