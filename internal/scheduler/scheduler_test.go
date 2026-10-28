@@ -366,3 +366,72 @@ func TestToStepRunCompilesAgent(t *testing.T) {
 		t.Fatalf("Command = %q, Script = %q", run.Command, run.Script)
 	}
 }
+
+func wfStep(id string, needs ...string) pipeline.Step {
+	return pipeline.Step{ID: id, Needs: needs, Workflow: &pipeline.Workflow{Repo: "acme/widgets", Workflow: "ci.yml", Ref: "main"}}
+}
+
+func TestWorkflowStepNeedsAServerThatCanRunIt(t *testing.T) {
+	g := plan(t, wfStep("ci"), st("after", "ci"))
+	f := &executor.Fake{}
+	r := Run(context.Background(), g, f, Options{})
+	s := statuses(r)
+	if s["ci"] != StatusFailed || s["after"] != StatusSkipped || len(f.Calls()) != 0 {
+		t.Fatalf("statuses = %v, calls = %v", s, f.Calls())
+	}
+	if !strings.Contains(r.Steps[0].Err.Error(), "only on a Forgeline server") {
+		t.Errorf("err = %v", r.Steps[0].Err)
+	}
+}
+
+func TestWorkflowStepDeniedAndNeverReachesTheExecutorOrTheHook(t *testing.T) {
+	called := false
+	f := &executor.Fake{}
+	r := Run(context.Background(), plan(t, wfStep("ci")), f, Options{
+		WorkflowDenied: "runs started by GitHub may not start workflows",
+		Workflow:       func(context.Context, *pipeline.Step, io.Writer) error { called = true; return nil },
+	})
+	if called || len(f.Calls()) != 0 || statuses(r)["ci"] != StatusFailed || !strings.Contains(r.Steps[0].Err.Error(), "may not start workflows") {
+		t.Fatalf("called=%v calls=%v report=%+v", called, f.Calls(), r.Steps)
+	}
+}
+
+func TestWorkflowStepResultsAndTimeoutAndCancel(t *testing.T) {
+	run := func(h func(context.Context, *pipeline.Step, io.Writer) error, timeout string, ctx context.Context) StepResult {
+		s := wfStep("ci")
+		s.Timeout = timeout
+		return Run(ctx, plan(t, s), &executor.Fake{}, Options{Workflow: h}).Steps[0]
+	}
+	ok := func(_ context.Context, _ *pipeline.Step, w io.Writer) error { io.WriteString(w, "hi"); return nil }
+	if r := run(ok, "", context.Background()); r.Status != StatusSucceeded {
+		t.Errorf("success: %+v", r)
+	}
+	boom := func(context.Context, *pipeline.Step, io.Writer) error { return errors.New("conclusion failure") }
+	if r := run(boom, "", context.Background()); r.Status != StatusFailed || r.Err.Error() != "conclusion failure" {
+		t.Errorf("failure: %+v", r)
+	}
+	wait := func(ctx context.Context, _ *pipeline.Step, _ io.Writer) error { <-ctx.Done(); return ctx.Err() }
+	if r := run(wait, "50ms", context.Background()); r.Status != StatusFailed || !strings.Contains(r.Err.Error(), "timed out") {
+		t.Errorf("timeout: %+v", r)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(30 * time.Millisecond); cancel() }()
+	if r := run(wait, "", ctx); r.Status != StatusCanceled {
+		t.Errorf("cancel: %+v", r)
+	}
+}
+
+func TestWorkflowStepOutputIsMaskedLikeAnyOther(t *testing.T) {
+	var out strings.Builder
+	hook := func(_ context.Context, _ *pipeline.Step, w io.Writer) error {
+		io.WriteString(w, "token is hunter2-secret-value\n")
+		return nil
+	}
+	Run(context.Background(), plan(t, wfStep("ci")), &executor.Fake{}, Options{
+		Workflow: hook, Secrets: map[string]string{"X": "hunter2-secret-value"},
+		Logs: func(string) io.Writer { return &out },
+	})
+	if strings.Contains(out.String(), "hunter2") {
+		t.Errorf("output = %q", out.String())
+	}
+}

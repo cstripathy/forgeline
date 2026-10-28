@@ -35,6 +35,37 @@ If the permission is missing you see: *the GitHub App does not have the Actions 
 - Logs and run names come from GitHub, so they are shown as plain text. The GitHub token is never sent to the address a log is downloaded from.
 - A run whose code comes from a **fork** is tagged and carries a warning.
 
+## Start a workflow from a pipeline
+
+A step can start a workflow and wait for it, so a Forgeline pipeline can include your existing GitHub jobs:
+
+```yaml
+steps:
+  - id: prepare
+    image: alpine:3.24
+    run: echo preparing
+  - id: ci
+    needs: [prepare]
+    timeout: 30m            # how long to wait
+    workflow:
+      repo: acme/widgets
+      workflow: ci.yml
+      ref: main
+      inputs: {environment: staging}
+      # detach: true        # do not wait
+```
+
+In the editor use **Add step → Kind → GitHub Actions workflow**.
+
+![Step builder]({{ '/console/37-workflow-step-builder.png' | relative_url }})
+![A run with a workflow step]({{ '/console/38-workflow-step-run.png' | relative_url }})
+
+- It runs on the server, with the server's GitHub connection. No GitHub credential ever enters a container, and the step takes no image, script, environment or permissions.
+- It succeeds only if the workflow's conclusion is `success`. If you cancel the Forgeline run, or the step times out, the GitHub run is canceled as well.
+- The repository and branch are checked when the step runs, against the allow list. A refusal is in the audit log.
+- **Runs started by GitHub cannot use it**, because the pipeline in a push or pull request is not trusted to start more work.
+- `forgeline run` on your laptop cannot run it.
+
 ## Runners on your own machines
 
 Not built yet. The plan is single-use runners, started only for private repositories you list, with

@@ -1,6 +1,6 @@
 # 011: GitHub Actions from Forgeline
 
-Status: **Slice 1 built** (the Actions page). Slices 2 and 3 are designed here, not built. Date: 2026-10-28.
+Status: **Slices 1 and 2 built** (the Actions page, and the workflow step). Slice 3 (runners) is designed here, not built. Date: 2026-10-28.
 
 ## Question
 
@@ -29,11 +29,29 @@ increase on the App's page, so this is a step for a person, not something Forgel
 The page works with a personal token too, if the token has the `repo` scope (classic) or the Actions
 permission (fine-grained).
 
-## Slice 2 (not built): a step that triggers a workflow
+## Slice 2 (built): a step that starts a workflow
 
-A pipeline step `github: {workflow, ref, inputs, wait}` would call the same dispatch code and poll the
-run until it ends. It uses the allow list and branch rules above, and runs started by GitHub itself
-do not get to use it (they have no secrets and no right to start more work).
+```yaml
+- id: ci
+  workflow: {repo: acme/widgets, workflow: ci.yml, ref: main, inputs: {env: staging}}   # detach: true to not wait
+```
+
+It runs on the Forgeline server, not in a container, because it needs the GitHub credentials and
+those never enter a container. So the step has no image, script, environment or permissions.
+
+- It starts the workflow, finds the run it started (GitHub's answer names it when it can; otherwise
+  the run that was not there before), polls until it ends, and succeeds only if the conclusion is
+  `success`. `timeout:` limits the wait.
+- If the Forgeline run is canceled, or the step times out, the GitHub run is canceled too, so work
+  this server started does not carry on unseen.
+- The same rules as the Actions page are checked again **when the step runs**: the repository must
+  be on the allow list, the branch must be one its rule allows, inputs are bounded, and starts share
+  the 20 a minute limit. A pipeline saved earlier cannot outlive a change to the allow list.
+- **Runs started by GitHub cannot use it** (a push or pull request controls the pipeline, and the
+  step would start more work with Forgeline's credentials). Like secrets, this stays refused until
+  runs have trust levels (note 005, slice 3).
+- Each start and each refusal is in the audit log under the actor `run <id>`.
+- `forgeline run` on a laptop cannot run it and says so.
 
 ## Slice 3 (not built): Forgeline-managed self-hosted runners
 
@@ -74,7 +92,7 @@ the rules before any code is written.
 Go tests with a stand-in GitHub, each rule broken one at a time to prove a test fails: the allow list,
 the branch rule, the token kept off the download address, the link scheme, bare IP and plain http
 refusals, the rate limit, workflow and input checks, and the log tail. A real browser walk-through
-against `scripts/dev/fake-github.py` (start with an input, watch queued, running and succeeded,
+against `scripts/dev/fake-github.py` (a pipeline with a container step and a workflow step, built from the step builder, run and watched to the end; start with an input, watch queued, running and succeeded,
 re-run, cancel, read a failed run's log, a refused branch).
 
 **Not checked:** the real GitHub API with the App (the App needs the Actions permission first).

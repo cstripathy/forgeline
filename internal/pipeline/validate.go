@@ -75,23 +75,26 @@ func (p *Pipeline) Validate() error {
 	for i, s := range p.Steps {
 		path := fmt.Sprintf("steps[%d]", i)
 
-		if strings.TrimSpace(s.Image) == "" || strings.ContainsAny(s.Image, " \t\n") {
+		if s.Workflow == nil && (strings.TrimSpace(s.Image) == "" || strings.ContainsAny(s.Image, " \t\n")) {
 			add(path+".image", "is required and must not contain whitespace, got %q", s.Image)
 		}
 
 		hasRun := strings.TrimSpace(s.Run) != ""
 		hasCommand := len(s.Command) > 0
 		switch {
-		case countTrue(hasRun, hasCommand, s.Agent != nil) > 1:
-			add(path, "set exactly one of run, command or agent, not several")
-		case !hasRun && !hasCommand && s.Agent == nil:
-			add(path, "set exactly one of run, command or agent")
+		case countTrue(hasRun, hasCommand, s.Agent != nil, s.Workflow != nil) > 1:
+			add(path, "set exactly one of run, command, agent or workflow, not several")
+		case !hasRun && !hasCommand && s.Agent == nil && s.Workflow == nil:
+			add(path, "set exactly one of run, command, agent or workflow")
 		case hasCommand && strings.TrimSpace(s.Command[0]) == "":
 			add(path+".command[0]", "the program name must not be empty")
 		}
 
 		if s.Agent != nil {
 			validateAgent(s, path, add)
+		}
+		if s.Workflow != nil {
+			validateWorkflow(s, path, add)
 		}
 
 		seenNeeds := make(map[string]bool, len(s.Needs))
@@ -201,6 +204,44 @@ func countTrue(bs ...bool) int {
 		}
 	}
 	return n
+}
+
+var (
+	workflowRepoRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	workflowFileRE = regexp.MustCompile(`^([A-Za-z0-9_.-]{1,100}\.ya?ml|[0-9]{1,18})$`)
+	workflowInput  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+)
+
+// validateWorkflow checks a workflow step. The server checks the same things again, against its
+// allow list, when the step runs.
+func validateWorkflow(s Step, path string, add func(path, format string, args ...any)) {
+	w := s.Workflow
+	wpath := path + ".workflow"
+	if !workflowRepoRE.MatchString(w.Repo) {
+		add(wpath+".repo", "must look like owner/name, got %q", w.Repo)
+	}
+	if !workflowFileRE.MatchString(w.Workflow) {
+		add(wpath+".workflow", "must be a file name such as ci.yml or the workflow's number, got %q", w.Workflow)
+	}
+	if w.Ref == "" || len(w.Ref) > 200 || strings.HasPrefix(w.Ref, "refs/") || strings.ContainsAny(w.Ref, " \t\n") {
+		add(wpath+".ref", "must be a branch name such as main (not a full ref), got %q", w.Ref)
+	}
+	if len(w.Inputs) > 25 {
+		add(wpath+".inputs", "at most 25 inputs, got %d", len(w.Inputs))
+	}
+	names := make([]string, 0, len(w.Inputs))
+	for k := range w.Inputs {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		if !workflowInput.MatchString(k) || len(w.Inputs[k]) > 1000 {
+			add(wpath+".inputs", "input %q has a bad name or a value over 1000 bytes", k)
+		}
+	}
+	if s.Image != "" || len(s.Env) > 0 || s.WorkDir != "" || len(s.Inputs) > 0 || s.Permissions.Network != "" || len(s.Permissions.Secrets) > 0 {
+		add(path, "a workflow step runs on GitHub: it takes no image, env, workdir, inputs or permissions")
+	}
 }
 
 // validateAgent checks an agent step: a known provider, a prompt, sane tools, a network to reach

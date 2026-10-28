@@ -89,10 +89,12 @@ func (s *Server) runGraph(runCtx context.Context, run store.Run, g *pipeline.Gra
 	}
 	secretsFor, denied := s.secretsFor(bg, run)
 	report := scheduler.Run(runCtx, g, s.cfg.Executor, scheduler.Options{
-		Parallelism:   s.cfg.Parallelism,
-		Workspace:     s.workspace(run.ID),
-		Secrets:       secretsFor,
-		SecretsDenied: denied,
+		Parallelism:    s.cfg.Parallelism,
+		Workspace:      s.workspace(run.ID),
+		Secrets:        secretsFor,
+		SecretsDenied:  denied,
+		Workflow:       s.workflowStep(run),
+		WorkflowDenied: workflowDeniedFor(run),
 		Logs: func(stepID string) io.Writer {
 			return &logWriter{log: s.log, store: s.cfg.Store, ctx: bg, runID: run.ID, stepID: stepID, limit: s.cfg.MaxLogBytes}
 		},

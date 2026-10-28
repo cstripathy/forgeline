@@ -131,38 +131,62 @@ export async function pipelineEditorPage({ params }) {
     return modal('Add a step', (close) => {
       const idIn = h('input', { id: 'sid', class: 'input', placeholder: 'build', pattern: '[a-z][a-z0-9-]*' });
       const imgIn = h('input', { id: 'simg', class: 'input', value: 'alpine:3.24' });
-      const kind = h('select', { id: 'skind', class: 'input' }, h('option', { value: 'script' }, 'Script'), h('option', { value: 'claude-code' }, 'Claude Code agent'));
-      kind.addEventListener('change', () => { if (kind.value === 'claude-code' && imgIn.value === 'alpine:3.24') imgIn.value = 'forgeline-agent-claude'; });
+      const kind = h('select', { id: 'skind', class: 'input' }, h('option', { value: 'script' }, 'Script'), h('option', { value: 'claude-code' }, 'Claude Code agent'), h('option', { value: 'workflow' }, 'GitHub Actions workflow'));
+      kind.addEventListener('change', () => { if (kind.value === 'claude-code' && imgIn.value === 'alpine:3.24') imgIn.value = 'forgeline-agent-claude'; sync(); });
       const toolsIn = h('input', { id: 'stools', class: 'input', placeholder: 'Read, Grep, Glob (read-only if empty)' });
       const cmd = h('textarea', { id: 'scmd', class: 'input h-28 font-mono text-[13px]', placeholder: 'echo hello', spellcheck: 'false' });
       const net = h('select', { id: 'snet', class: 'input' }, h('option', { value: '' }, 'Allowed (default)'), h('option', { value: 'none' }, 'None: no network at all'));
       const to = h('input', { id: 'sto', class: 'input', placeholder: '10m (optional)' });
       const needs = steps.map(s => ({ s, box: h('input', { type: 'checkbox', value: s, class: 'size-4 rounded' }) }));
       const secs = secretNames.map(s => ({ s, box: h('input', { type: 'checkbox', value: s, class: 'size-4 rounded' }) }));
+      const wfRepo = h('input', { id: 'wrepo', class: 'input font-mono', placeholder: 'owner/name' });
+      const wfFile = h('input', { id: 'wfile', class: 'input font-mono', placeholder: 'ci.yml' });
+      const wfRef = h('input', { id: 'wref', class: 'input font-mono', placeholder: 'main' });
+      const wfInputs = h('textarea', { id: 'winputs', class: 'input h-20 font-mono text-[13px]', placeholder: 'environment=staging', spellcheck: 'false' });
+      const wfDetach = h('input', { type: 'checkbox', id: 'wdetach', class: 'size-4 rounded' });
+      const wfBox = h('div', { class: 'hidden space-y-4' },
+        notice('info', 'The Forgeline server starts the workflow with its GitHub connection and waits for it. The repository and branch must be allowed under Integrations, and the workflow needs ', h('code', { class: 'font-mono text-xs' }, 'on: workflow_dispatch'), '. Runs started by GitHub cannot use this step.'),
+        h('div', { class: 'grid gap-4 sm:grid-cols-2' }, field('Repository', wfRepo), field('Workflow file', wfFile, 'File name under .github/workflows, or its number.')),
+        field('Branch', wfRef), field('Inputs (optional)', wfInputs, 'One name=value per line.'),
+        h('label', { class: 'flex items-center gap-2 text-sm' }, wfDetach, 'Do not wait for it to finish'));
+      const containerOnly = [];
+      const sync = () => { const wf = kind.value === 'workflow'; wfBox.classList.toggle('hidden', !wf); containerOnly.forEach(e => e.classList.toggle('hidden', wf)); };
       const err = h('div', { class: 'mt-3 hidden' });
       const checks = (items, empty) => h('div', { class: 'flex flex-wrap gap-x-4 gap-y-1.5' }, items.length ? items.map(i => h('label', { class: 'flex items-center gap-1.5 text-sm' }, i.box, i.s)) : h('span', { class: 'muted text-sm' }, empty));
+      const cont = (el) => { containerOnly.push(el); return el; };
       return h('div', { class: 'space-y-4' },
         field('Kind', kind, 'A Claude Code agent runs the claude command line in the image with your prompt. It needs a login secret ticked below (CLAUDE_CODE_OAUTH_TOKEN from claude setup-token, or ANTHROPIC_API_KEY).'),
-        h('div', { class: 'grid gap-4 sm:grid-cols-2' }, field('Step id', idIn, 'Lowercase letters, digits and hyphens.'), field('Container image', imgIn, 'Pin a version or digest.')),
-        field('Command or prompt', cmd, 'Script: one command per line. Agent: what to ask it.'),
-        field('Agent tools', toolsIn, 'Agent only. Comma separated, for example Read, Edit, Bash(go test:*). The agent cannot ask for approval in a pipeline, so anything not listed is refused.'),
+        h('div', { class: 'grid gap-4 sm:grid-cols-2' }, field('Step id', idIn, 'Lowercase letters, digits and hyphens.'), cont(field('Container image', imgIn, 'Pin a version or digest.'))),
+        wfBox,
+        cont(field('Command or prompt', cmd, 'Script: one command per line. Agent: what to ask it.')),
+        cont(field('Agent tools', toolsIn, 'Agent only. Comma separated, for example Read, Edit, Bash(go test:*). The agent cannot ask for approval in a pipeline, so anything not listed is refused.')),
         field('Runs after', checks(needs, 'No other steps yet.'), 'Steps that must succeed first.'),
-        h('div', { class: 'grid gap-4 sm:grid-cols-2' }, field('Network access', net), field('Time limit', to)),
-        field('Secrets this step may read', checks(secs, 'No secrets exist yet. Add them under Secrets.'), 'The step receives only what you tick.'), err,
+        h('div', { class: 'grid gap-4 sm:grid-cols-2' }, cont(field('Network access', net)), field('Time limit', to, 'For a workflow step this is how long to wait.')),
+        cont(field('Secrets this step may read', checks(secs, 'No secrets exist yet. Add them under Secrets.'), 'The step receives only what you tick.')), err,
         h('div', { class: 'flex justify-end gap-2' }, h('button', { class: 'btn-secondary', type: 'button', onclick: () => close() }, 'Cancel'),
           h('button', { class: 'btn-primary', type: 'button', onclick: () => {
             const sid = idIn.value.trim();
             const fail = (m) => { mount(err, errorBox(m)); err.classList.remove('hidden'); };
             if (!/^[a-z][a-z0-9-]{0,62}$/.test(sid)) return fail('The step id must be lowercase letters, digits and hyphens, starting with a letter.');
-            if (!cmd.value.trim()) return fail('Give the step something to run.');
-            if (!imgIn.value.trim()) return fail('Give a container image.');
+            const wf = kind.value === 'workflow';
+            if (!wf && !cmd.value.trim()) return fail('Give the step something to run.');
+            if (!wf && !imgIn.value.trim()) return fail('Give a container image.');
+            if (wf && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(wfRepo.value.trim())) return fail('The repository must look like owner/name.');
+            if (wf && !wfFile.value.trim()) return fail('Give the workflow file, such as ci.yml.');
+            if (wf && !wfRef.value.trim()) return fail('Give the branch to run it on.');
             if (steps.includes(sid)) return fail('A step called ' + sid + ' already exists.');
             const idx = text.search(/^steps:\s*$/m);
             if (idx < 0 || /^[A-Za-z]/m.test(text.slice(idx + 6))) return fail('The steps list is not at the end of the file, so the step cannot be added automatically. Add it by hand.');
             const pick = (items) => items.filter(i => i.box.checked).map(i => i.s);
             const agent = kind.value === 'claude-code';
-            let b = `  - id: ${sid}\n    image: ${imgIn.value.trim()}\n`;
-            if (agent) {
+            let b = wf ? `  - id: ${sid}\n` : `  - id: ${sid}\n    image: ${imgIn.value.trim()}\n`;
+            if (wf) {
+              // JSON strings are valid double-quoted YAML scalars.
+              b += `    workflow:\n      repo: ${JSON.stringify(wfRepo.value.trim())}\n      workflow: ${JSON.stringify(wfFile.value.trim())}\n      ref: ${JSON.stringify(wfRef.value.trim())}\n`;
+              const ins = wfInputs.value.split('\n').map(l => l.trim()).filter(Boolean).map(l => { const i = l.indexOf('='); return i > 0 ? [l.slice(0, i).trim(), l.slice(i + 1)] : null; }).filter(Boolean);
+              if (ins.length) b += '      inputs:\n' + ins.map(([k, v]) => `        ${JSON.stringify(k)}: ${JSON.stringify(v)}\n`).join('');
+              if (wfDetach.checked) b += '      detach: true\n';
+            } else if (agent) {
               // JSON strings are valid double-quoted YAML scalars, so the prompt needs no hand escaping.
               b += `    agent:\n      provider: claude-code\n      prompt: ${JSON.stringify(cmd.value.trim())}\n`;
               const tools = toolsIn.value.split(',').map(t => t.trim()).filter(Boolean);
@@ -171,8 +195,8 @@ export async function pipelineEditorPage({ params }) {
               b += `    run: |\n` + cmd.value.replace(/\s+$/, '').split('\n').map(l => '      ' + l).join('\n') + '\n';
             }
             if (pick(needs).length) b += `    needs: [${pick(needs).join(', ')}]\n`;
-            const ps = pick(secs);
-            if (net.value || ps.length) { b += '    permissions:\n'; if (net.value) b += `      network: ${net.value}\n`; if (ps.length) b += `      secrets: [${ps.join(', ')}]\n`; }
+            const ps = wf ? [] : pick(secs);
+            if (!wf && (net.value || ps.length)) { b += '    permissions:\n'; if (net.value) b += `      network: ${net.value}\n`; if (ps.length) b += `      secrets: [${ps.join(', ')}]\n`; }
             if (to.value.trim()) b += `    timeout: ${to.value.trim()}\n`;
             area.value = text.replace(/\s*$/, '\n') + b; changed(); area.scrollTop = area.scrollHeight; close(); toast('Step added at the end', 'ok');
           } }, 'Add step')));
