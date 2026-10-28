@@ -108,6 +108,21 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | `POST /v1/cloud/changes/{id}/reject` | admin | Body: `note`. |
 | `POST /v1/cloud/changes/{id}/cancel` | developer | Withdraw your own proposal. |
 
+## GitHub Actions
+
+Only repositories on the GitHub allow list. A workflow can only be started on a branch its rule allows.
+
+| Method and path | Role | Purpose |
+| --- | --- | --- |
+| `GET /v1/actions/repos` | developer | The repositories you may use, and their branches. |
+| `GET /v1/actions/workflows` | developer | `?repo=owner/name`. Workflows of the repository. |
+| `GET /v1/actions/runs` | developer | `?repo=`, optional `workflow=` (number or `ci.yml`) and `status=`. Latest 30 runs. Each has `fork: true` when its code came from another repository. |
+| `GET /v1/actions/runs/{id}` | developer | `?repo=`. The run and its jobs with steps. |
+| `GET /v1/actions/jobs/{id}/logs` | developer | `?repo=`. The last 256 KB of the job's log as plain text. |
+| `POST /v1/actions/dispatch` | developer | Body: `repo`, `workflow`, `ref` (an allowed branch), `inputs` (up to 25 strings). Needs `workflow_dispatch` in the workflow file. |
+| `POST /v1/actions/runs/{id}/cancel` | developer | Body: `repo`. |
+| `POST /v1/actions/runs/{id}/rerun` | developer | Body: `repo`, `failed_only`. |
+
 ## Assistant
 
 | Method and path | Role | Purpose |

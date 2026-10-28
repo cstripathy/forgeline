@@ -27,3 +27,9 @@ Also verified in the browser but not pictured here, because the pictures show an
 the Infrastructure page reading a real account (stacks, instances) with the AWS CLI profile of
 the person running the server, and a change proposed against it that its own proposer could not
 approve and a second administrator rejected, so nothing in that account changed.
+
+| Picture | What it shows |
+| --- | --- |
+| [34-actions-runs](34-actions-runs.png) | GitHub Actions page: the workflows of an allowed repository, and its runs with status, branch, event and who started them. A run from a fork carries a `fork` tag. A stand-in GitHub served the data |
+| [35-actions-run-log](35-actions-run-log.png) | A failed run: jobs and steps, the end of the job's log (shown as text), and Re-run buttons |
+| [36-actions-dispatch](36-actions-dispatch.png) | Starting a workflow: only branches allowed for the repository, optional inputs |

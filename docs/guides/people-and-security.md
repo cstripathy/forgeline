@@ -1,7 +1,7 @@
 ---
 title: People and security
 parent: Guides
-nav_order: 6
+nav_order: 7
 ---
 
 # People and security

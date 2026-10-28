@@ -32,6 +32,8 @@ GitHub API address in the *Connect with a GitHub App* card to `http://127.0.0.1:
 *Create the GitHub App*, then *Continue to GitHub* and *Create GitHub App*. It checks the app token's
 shape and expiry but not its signature (the Go tests do).
 
+It also serves the **GitHub Actions** calls for `acme/shop`: two workflows (one disabled), three seeded runs (one failed, one from a fork), `workflow_dispatch` (only on `main` or `release/1`; a started run goes queued, running, succeeded over about 15 seconds), cancel, re-run, jobs, and a log that is reached through a redirect to a second address. It prints `LEAK` to its stderr if the console ever sends its token to that second address.
+
 It accepts the token `ghp_demo_token_value_1234`, knows one repository (`acme/shop`) whose commit
 holds a small `forgeline.yaml`, and appends every commit status it receives to the log. In the
 console set the API address to `http://127.0.0.1:9911` (plain http is allowed only for loopback),
