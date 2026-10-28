@@ -13,6 +13,7 @@ import { secretsPage } from './pages/secrets.js';
 import { peoplePage } from './pages/people.js';
 import { auditPage } from './pages/audit.js';
 import { accountPage } from './pages/account.js';
+import { assistantButton } from './lib/assistant.js';
 
 const root = document.getElementById('root');
 export const session = { role: 'viewer', name: '', user: null };
@@ -76,7 +77,7 @@ function shell() {
 
   const top = h('header', { class: 'sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-slate-200 bg-white/85 px-4 backdrop-blur lg:pl-72 dark:border-slate-800 dark:bg-slate-900/85' },
     h('button', { class: 'btn-ghost btn-sm lg:hidden', type: 'button', 'aria-label': 'Open menu', onclick: () => { sidebar.classList.toggle('hidden'); sidebar.classList.toggle('flex'); } }, icon('menu', 'size-5')),
-    h('div', { class: 'flex-1' }), themeBtn, userMenu);
+    h('div', { class: 'flex-1' }), assistantButton(session.role), themeBtn, userMenu);
 
   renderUser(); renderNav();
   addEventListener('hashchange', renderNav);
