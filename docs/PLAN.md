@@ -23,7 +23,7 @@ Open this repository in Claude Code and paste:
   GitHub webhook with commit statuses, a demo deployment on AWS (see `deploy/aws/README.md`).
 - M3 slice 1 (network permission, no-new-privileges) and slice 2 (secrets scoped to steps, private
   env file, masking, never cached). Slices 3 to 5 are not built (see Next steps).
-- Agent steps (design note 007): `agent:` with provider `claude-code`, read-only tools by default, credential from the vault. Built and run on real Docker with a dummy token; **not run with a real login**.
+- Agent steps (design note 007): `agent:` with provider `claude-code`, read-only tools by default, credential from the vault. Built and run on real Docker with a real `setup-token` login. Console runs have no source checkout yet, so the agent sees an empty workspace.
 - The web console (design note 006), replacing the M2 page: accounts and roles, saved and
   versioned pipelines with a live graph, a write-only encrypted vault, GitHub configured at
   runtime, platform and AWS overview, cloud changes that need a second administrator, an audit

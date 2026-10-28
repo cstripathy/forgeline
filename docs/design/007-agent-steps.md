@@ -1,6 +1,6 @@
 # 007: Agent steps (Claude Code first)
 
-Status: **Built for Claude Code**, login unverified (see the end). Date: 2026-10-28.
+Status: **Built for Claude Code** and run with a real `setup-token` login. Date: 2026-10-28.
 
 ## Question
 
@@ -47,10 +47,15 @@ subscription login.
 
 ## Checked, and not checked
 
-Checked: validation and the command line in Go tests (the credential rule was mutation-proved), the
-step on real Docker with the real Claude Code binary, and the console path from the step builder
-through the vault to the container. With a dummy token the agent reached Anthropic and answered
-401, so the plumbing works end to end. Picture: [20-agent-step.png](../console/20-agent-step.png).
+Checked: validation and the command line in Go tests (the credential rule was mutation-proved); the
+step on real Docker with the real Claude Code binary; the console path from the step builder
+through the vault to the container. A dummy token reached Anthropic and answered 401. Then a
+real `claude setup-token` value stored under Secrets made the step succeed: the agent answered
+from inside the container (it reported an empty `/workspace`, because a console run has no source
+checkout yet) and the token did not appear in the output. Separately, the same command line run
+on the host with a real login answered a question about this repository, and with the default
+read-only tools a request to create a file was refused and no file appeared.
+Picture: [20-agent-step.png](../console/20-agent-step.png).
 
-**Not checked:** a run with a genuine login, so no real agent output and no spend were observed.
-Whether a `setup-token` login on a subscription is permitted for this use is not confirmed.
+**Not checked:** an agent working on a real checkout (console runs have no source yet), spend and
+usage figures, and whether Anthropic's terms allow a `setup-token` subscription login for this use.
