@@ -15,9 +15,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	awsdeploy "github.com/cstripathy/forgeline/deploy/aws"
-	"github.com/cstripathy/forgeline/internal/authn"
-	"github.com/cstripathy/forgeline/internal/docstore"
+	awsdeploy "github.com/forgelinehq/forgeline/deploy/aws"
+	"github.com/forgelinehq/forgeline/internal/authn"
+	"github.com/forgelinehq/forgeline/internal/docstore"
 )
 
 const (

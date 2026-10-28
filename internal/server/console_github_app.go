@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/docstore"
+	"github.com/forgelinehq/forgeline/internal/docstore"
 )
 
 // Connecting GitHub from the console with a GitHub App. The administrator clicks one button,

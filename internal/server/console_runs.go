@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/store"
 )
 
 const kindRunMeta = "runmeta"

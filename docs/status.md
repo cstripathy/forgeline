@@ -14,4 +14,4 @@ assistant, AWS sign-in, the GitHub App.
 **Not checked against the real service:** a real GitHub webhook delivery and commit status; the assistant's API-key mode against the real
 Anthropic API; TLS behind a real proxy; more than one server sharing a database; single sign-on (not built).
 
-Roadmap and plan: [ROADMAP](https://github.com/cstripathy/forgeline/blob/main/docs/ROADMAP.md), [PLAN](https://github.com/cstripathy/forgeline/blob/main/docs/PLAN.md), [ARCHITECTURE](https://github.com/cstripathy/forgeline/blob/main/docs/ARCHITECTURE.md).
+Roadmap and plan: [ROADMAP](https://github.com/forgelinehq/forgeline/blob/main/docs/ROADMAP.md), [PLAN](https://github.com/forgelinehq/forgeline/blob/main/docs/PLAN.md), [ARCHITECTURE](https://github.com/forgelinehq/forgeline/blob/main/docs/ARCHITECTURE.md).

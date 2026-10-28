@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/executor"
-	"github.com/cstripathy/forgeline/internal/pipeline"
+	"github.com/forgelinehq/forgeline/internal/executor"
+	"github.com/forgelinehq/forgeline/internal/pipeline"
 )
 
 func plan(t *testing.T, steps ...pipeline.Step) *pipeline.Graph {

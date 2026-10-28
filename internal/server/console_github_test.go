@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cstripathy/forgeline/internal/authn"
-	"github.com/cstripathy/forgeline/internal/docstore"
-	"github.com/cstripathy/forgeline/internal/executor"
-	"github.com/cstripathy/forgeline/internal/store"
-	"github.com/cstripathy/forgeline/internal/vault"
+	"github.com/forgelinehq/forgeline/internal/authn"
+	"github.com/forgelinehq/forgeline/internal/docstore"
+	"github.com/forgelinehq/forgeline/internal/executor"
+	"github.com/forgelinehq/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/vault"
 )
 
 // connectGitHub configures the integration through the API the way the console does.

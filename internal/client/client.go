@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/server"
+	"github.com/forgelinehq/forgeline/internal/server"
 )
 
 // Client talks to one Forgeline server.

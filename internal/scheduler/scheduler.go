@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/executor"
-	"github.com/cstripathy/forgeline/internal/pipeline"
-	"github.com/cstripathy/forgeline/internal/redact"
-	"github.com/cstripathy/forgeline/internal/secrets"
+	"github.com/forgelinehq/forgeline/internal/executor"
+	"github.com/forgelinehq/forgeline/internal/pipeline"
+	"github.com/forgelinehq/forgeline/internal/redact"
+	"github.com/forgelinehq/forgeline/internal/secrets"
 )
 
 // Status is the outcome of one step.

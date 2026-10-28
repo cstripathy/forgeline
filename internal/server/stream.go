@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/store"
 )
 
 // keepAliveEvery is how often an idle stream sends a comment line so proxies keep it open.

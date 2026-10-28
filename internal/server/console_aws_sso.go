@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/docstore"
+	"github.com/forgelinehq/forgeline/internal/docstore"
 )
 
 // Signing in to AWS from the console: the IAM Identity Center (SSO) device flow. The person enters

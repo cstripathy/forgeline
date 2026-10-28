@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/docstore"
-	"github.com/cstripathy/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/docstore"
+	"github.com/forgelinehq/forgeline/internal/store"
 )
 
 // The assistant answers questions about what the console shows. It is read-only by construction:

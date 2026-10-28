@@ -28,4 +28,4 @@ The bearer token counts as an admin named `token`. Whoever proposes a cloud chan
 - Steps get only the secrets and network they ask for. Runs started by GitHub get no secrets.
 - Every change, refusal and failed login goes to the audit log.
 
-See [design note 006](https://github.com/cstripathy/forgeline/blob/main/docs/design/006-console.md) for the rules and the known limits.
+See [design note 006](https://github.com/forgelinehq/forgeline/blob/main/docs/design/006-console.md) for the rules and the known limits.

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/pipeline"
-	"github.com/cstripathy/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/pipeline"
+	"github.com/forgelinehq/forgeline/internal/store"
 )
 
 // RunJSON is the API representation of a run.

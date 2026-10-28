@@ -13,8 +13,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/cstripathy/forgeline/internal/authn"
-	"github.com/cstripathy/forgeline/internal/executor"
+	"github.com/forgelinehq/forgeline/internal/authn"
+	"github.com/forgelinehq/forgeline/internal/executor"
 )
 
 const (

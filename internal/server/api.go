@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cstripathy/forgeline/internal/authn"
-	"github.com/cstripathy/forgeline/internal/pipeline"
-	"github.com/cstripathy/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/authn"
+	"github.com/forgelinehq/forgeline/internal/pipeline"
+	"github.com/forgelinehq/forgeline/internal/store"
 )
 
 // maxPipelineBytes caps the pipeline YAML in a submission.

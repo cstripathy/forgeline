@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	awsdeploy "github.com/cstripathy/forgeline/deploy/aws"
-	"github.com/cstripathy/forgeline/internal/authn"
-	"github.com/cstripathy/forgeline/internal/executor"
+	awsdeploy "github.com/forgelinehq/forgeline/deploy/aws"
+	"github.com/forgelinehq/forgeline/internal/authn"
+	"github.com/forgelinehq/forgeline/internal/executor"
 )
 
 // fakeCLI stands in for the docker and aws command lines.

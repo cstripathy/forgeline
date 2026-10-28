@@ -52,4 +52,4 @@ Forgeline builds the command line and runs the vendor's own `claude` CLI in the 
 {: .warning }
 Check Anthropic's terms before using a subscription token (`setup-token`) for automation. An API key is the safer production choice. Codex and Copilot providers are not built yet.
 
-Designs: [007 agent steps](https://github.com/cstripathy/forgeline/blob/main/docs/design/007-agent-steps.md), [008 assistant](https://github.com/cstripathy/forgeline/blob/main/docs/design/008-assistant.md).
+Designs: [007 agent steps](https://github.com/forgelinehq/forgeline/blob/main/docs/design/007-agent-steps.md), [008 assistant](https://github.com/forgelinehq/forgeline/blob/main/docs/design/008-assistant.md).

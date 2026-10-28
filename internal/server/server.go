@@ -19,10 +19,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/docstore"
-	"github.com/cstripathy/forgeline/internal/executor"
-	"github.com/cstripathy/forgeline/internal/store"
-	"github.com/cstripathy/forgeline/internal/vault"
+	"github.com/forgelinehq/forgeline/internal/docstore"
+	"github.com/forgelinehq/forgeline/internal/executor"
+	"github.com/forgelinehq/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/vault"
 )
 
 // MinTokenLength is the shortest bearer token the server accepts.

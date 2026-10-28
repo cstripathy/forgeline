@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/cstripathy/forgeline/internal/executor"
+	"github.com/forgelinehq/forgeline/internal/executor"
 )
 
 const secretValue = "s3cret-token-value"

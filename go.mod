@@ -1,4 +1,4 @@
-module github.com/cstripathy/forgeline
+module github.com/forgelinehq/forgeline
 
 go 1.27.3
 

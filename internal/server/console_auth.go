@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/authn"
-	"github.com/cstripathy/forgeline/internal/docstore"
+	"github.com/forgelinehq/forgeline/internal/authn"
+	"github.com/forgelinehq/forgeline/internal/docstore"
 )
 
 // Document kinds kept in the console's docstore.

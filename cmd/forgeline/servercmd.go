@@ -19,12 +19,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cstripathy/forgeline/internal/docstore"
-	"github.com/cstripathy/forgeline/internal/executor"
-	"github.com/cstripathy/forgeline/internal/secrets"
-	"github.com/cstripathy/forgeline/internal/server"
-	"github.com/cstripathy/forgeline/internal/store"
-	"github.com/cstripathy/forgeline/internal/vault"
+	"github.com/forgelinehq/forgeline/internal/docstore"
+	"github.com/forgelinehq/forgeline/internal/executor"
+	"github.com/forgelinehq/forgeline/internal/secrets"
+	"github.com/forgelinehq/forgeline/internal/server"
+	"github.com/forgelinehq/forgeline/internal/store"
+	"github.com/forgelinehq/forgeline/internal/vault"
 )
 
 const serverHelp = `usage: forgeline server [--listen ADDR] [--data-dir DIR] [--max-runs N] [--parallel N]
