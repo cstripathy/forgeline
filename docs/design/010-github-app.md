@@ -43,7 +43,11 @@ In a real browser against `scripts/dev/fake-github.py`: the card, the launch pag
 the return to the console, the installation and repository choice, then a signed webhook that started
 a run whose statuses reached the stand-in with an installation token.
 
-**Not checked:** real GitHub. The manifest endpoints, the `pem` format (PKCS#1 and PKCS#8 are both
-accepted) and the installation calls follow GitHub's documentation but were not run against it.
-Creating a real app is a visible action on someone's GitHub account, so it needs the account owner's
-go-ahead. GitHub Enterprise Server (an `/api/v3` address) is accepted but untried.
+**Checked on real GitHub (2026-10-28):** the owner created an app from the console (manifest
+flow), installed it, and chose 19 repositories. The console's connection test then read all 19
+through an installation token, with no personal token stored. The manifest endpoints, the `pem`
+format and the installation calls all worked as documented.
+
+**Not checked:** a real webhook delivery (the address was a public site, not this laptop, so
+nothing reached the server), a commit status posted to a real repository (a visible write, so it
+was left for the owner), and GitHub Enterprise Server (an `/api/v3` address is accepted but untried).
