@@ -211,6 +211,9 @@ func toStepRun(s *pipeline.Step, workspace string) (executor.StepRun, error) {
 		Env: s.Env, WorkDir: s.WorkDir, Workspace: workspace, Inputs: s.Inputs,
 		Network: s.Permissions.Network,
 	}
+	if s.Agent != nil {
+		run.Command = s.Agent.Argv()
+	}
 	if s.Timeout != "" {
 		d, err := time.ParseDuration(s.Timeout)
 		if err != nil {

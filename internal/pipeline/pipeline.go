@@ -6,6 +6,11 @@
 // YAML form compiles to the same types.
 package pipeline
 
+import (
+	"strconv"
+	"strings"
+)
+
 // VersionV1Alpha1 is the only spec version so far. It is alpha: fields can change.
 const VersionV1Alpha1 = "v1alpha1"
 
@@ -19,12 +24,13 @@ type Pipeline struct {
 
 // Step is one unit of work that runs in a container.
 //
-// Exactly one of Run or Command must be set.
+// Exactly one of Run, Command or Agent must be set.
 type Step struct {
 	ID      string            `json:"id" doc:"Unique step identifier: lowercase letters, digits and hyphens." pattern:"^[a-z][a-z0-9-]{0,62}$"`
 	Image   string            `json:"image" doc:"Container image the step runs in." minLength:"1"`
 	Run     string            `json:"run,omitempty" doc:"Shell script to run. Set this or command, not both." minLength:"1"`
 	Command []string          `json:"command,omitempty" doc:"Command and arguments, run without a shell. Set this or run, not both." minItems:"1"`
+	Agent   *Agent            `json:"agent,omitempty" doc:"Run a coding agent with a prompt instead of a script. The image must contain the agent's command line. Set this or run or command."`
 	Needs   []string          `json:"needs,omitempty" doc:"IDs of steps that must succeed before this one starts." itemPattern:"^[a-z][a-z0-9-]{0,62}$"`
 	Env     map[string]string `json:"env,omitempty" doc:"Environment variables for the step. Names must be valid identifiers."`
 	WorkDir string            `json:"workdir,omitempty" doc:"Absolute working directory inside the container." pattern:"^/"`
@@ -48,3 +54,52 @@ const (
 	NetworkNone   = "none"
 	NetworkEgress = "egress"
 )
+
+// Agent describes a coding agent run as a step. The agent's own command line runs inside the
+// step's container; Forgeline never reads or refreshes the vendor's login. The step must list the
+// credential in permissions.secrets (see AgentCredentials).
+type Agent struct {
+	Provider string `json:"provider" doc:"Which agent to run. Only claude-code so far." enum:"claude-code"`
+	Prompt   string `json:"prompt" doc:"What to ask the agent. It is passed as a single argument, never through a shell." minLength:"1"`
+	Model    string `json:"model,omitempty" doc:"Model name to pass to the agent. Empty uses the agent's default."`
+	MaxTurns int    `json:"maxTurns,omitempty" doc:"Most turns the agent may take. Empty means 10." minimum:"1" maximum:"100"`
+	// Tools is deliberately read-only by default: editing files or running commands must be asked for.
+	Tools []string `json:"tools,omitempty" doc:"Tools the agent may use, for example Read, Grep, Edit, Bash(go test:*). Empty means read-only: Read, Grep, Glob. A tool not listed is refused, because the agent cannot ask for approval in a pipeline."`
+}
+
+// Agent providers.
+const ProviderClaudeCode = "claude-code"
+
+// Defaults for agent steps.
+const (
+	defaultAgentMaxTurns = 10
+)
+
+// DefaultAgentTools is what an agent may use when the pipeline lists none.
+var DefaultAgentTools = []string{"Read", "Grep", "Glob"}
+
+// AgentCredentials lists the secret names that can authenticate each provider. A step must request
+// at least one of them.
+var AgentCredentials = map[string][]string{
+	ProviderClaudeCode: {"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"},
+}
+
+// Argv is the command line that runs the agent. The prompt is one argument after "--", so a prompt
+// that starts with "-" or holds shell characters cannot change the command.
+func (a *Agent) Argv() []string {
+	turns := a.MaxTurns
+	if turns == 0 {
+		turns = defaultAgentMaxTurns
+	}
+	tools := a.Tools
+	if len(tools) == 0 {
+		tools = DefaultAgentTools
+	}
+	argv := []string{"claude", "-p", "--output-format", "text",
+		"--max-turns", strconv.Itoa(turns),
+		"--allowedTools=" + strings.Join(tools, ",")}
+	if a.Model != "" {
+		argv = append(argv, "--model", a.Model)
+	}
+	return append(argv, "--", a.Prompt)
+}

@@ -355,3 +355,14 @@ func (s *syncBuf) Write(p []byte) (int, error) {
 func (s *syncBuf) String() string { s.mu.Lock(); defer s.mu.Unlock(); return string(s.b) }
 
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
+
+func TestToStepRunCompilesAgent(t *testing.T) {
+	s := &pipeline.Step{ID: "review", Image: "img", Agent: &pipeline.Agent{Provider: pipeline.ProviderClaudeCode, Prompt: "look"}}
+	run, err := toStepRun(s, "/ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run.Command) == 0 || run.Command[0] != "claude" || run.Command[len(run.Command)-1] != "look" || run.Script != "" {
+		t.Fatalf("Command = %q, Script = %q", run.Command, run.Script)
+	}
+}

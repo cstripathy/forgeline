@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -55,7 +56,7 @@ func TestValidateRejects(t *testing.T) {
 		{"duplicate id", func(p *Pipeline) { p.Steps[1].ID = "build"; p.Steps[1].Needs = nil }, "steps[1].id", "duplicate step id"},
 		{"missing image", func(p *Pipeline) { p.Steps[0].Image = "" }, "steps[0].image", "required"},
 		{"image with space", func(p *Pipeline) { p.Steps[0].Image = "golang 1.24" }, "steps[0].image", "whitespace"},
-		{"run and command", func(p *Pipeline) { p.Steps[0].Command = []string{"x"} }, "steps[0]", "not both"},
+		{"run and command", func(p *Pipeline) { p.Steps[0].Command = []string{"x"} }, "steps[0]", "not several"},
 		{"neither run nor command", func(p *Pipeline) { p.Steps[0].Run = "" }, "steps[0]", "set exactly one"},
 		{"blank run", func(p *Pipeline) { p.Steps[0].Run = "   " }, "steps[0]", "set exactly one"},
 		{"empty program", func(p *Pipeline) { p.Steps[1].Command = []string{" "} }, "steps[1].command[0]", "must not be empty"},
@@ -81,6 +82,19 @@ func TestValidateRejects(t *testing.T) {
 		{"absolute input", func(p *Pipeline) { p.Steps[0].Inputs = []string{"/etc/passwd"} }, "steps[0].inputs[0]", "relative"},
 		{"parent input", func(p *Pipeline) { p.Steps[0].Inputs = []string{"ok", "../secret"} }, "steps[0].inputs[1]", ".."},
 		{"backslash input", func(p *Pipeline) { p.Steps[0].Inputs = []string{`a\b`} }, "steps[0].inputs[0]", "backslash"},
+		{"agent and run", func(p *Pipeline) { p.Steps[0].Agent = agentStep() }, "steps[0]", "not several"},
+		{"agent unknown provider", func(p *Pipeline) { setAgent(p, func(a *Agent) { a.Provider = "gpt" }) }, "steps[0].agent.provider", "unknown provider"},
+		{"agent no prompt", func(p *Pipeline) { setAgent(p, func(a *Agent) { a.Prompt = "  " }) }, "steps[0].agent.prompt", "required"},
+		{"agent too many turns", func(p *Pipeline) { setAgent(p, func(a *Agent) { a.MaxTurns = 101 }) }, "steps[0].agent.maxTurns", "between 1 and 100"},
+		{"agent tool with comma", func(p *Pipeline) { setAgent(p, func(a *Agent) { a.Tools = []string{"Read,Bash"} }) }, "steps[0].agent.tools[0]", "without commas"},
+		{"agent without network", func(p *Pipeline) {
+			setAgent(p, func(a *Agent) {})
+			p.Steps[0].Permissions.Network = NetworkNone
+		}, "steps[0].permissions.network", "needs network"},
+		{"agent without credential", func(p *Pipeline) {
+			setAgent(p, func(a *Agent) {})
+			p.Steps[0].Permissions.Secrets = []string{"OTHER"}
+		}, "steps[0].permissions.secrets", "must request one of"},
 		{"bad bracket input", func(p *Pipeline) { p.Steps[0].Inputs = []string{"src/[a-"} }, "steps[0].inputs[0]", "not a valid glob"},
 	}
 	for _, tt := range tests {
@@ -154,5 +168,45 @@ func TestIDPatternMatchesSchemaTags(t *testing.T) {
 		if got != idPattern {
 			t.Errorf("%s.%s %s tag = %q, want %q", f.typ, f.field, f.tag, got, idPattern)
 		}
+	}
+}
+
+func agentStep() *Agent {
+	return &Agent{Provider: ProviderClaudeCode, Prompt: "review the diff"}
+}
+
+// setAgent turns step 0 into a valid agent step, then lets the test break one thing.
+func setAgent(p *Pipeline, mutate func(*Agent)) {
+	a := agentStep()
+	mutate(a)
+	p.Steps[0].Run = ""
+	p.Steps[0].Agent = a
+	p.Steps[0].Permissions = Permissions{Secrets: []string{"CLAUDE_CODE_OAUTH_TOKEN"}}
+}
+
+func TestValidateAcceptsAgentStep(t *testing.T) {
+	for _, cred := range AgentCredentials[ProviderClaudeCode] {
+		p := validPipeline()
+		setAgent(&p, func(*Agent) {})
+		p.Steps[0].Permissions.Secrets = []string{cred}
+		if err := p.Validate(); err != nil {
+			t.Errorf("credential %s: Validate() = %v", cred, err)
+		}
+	}
+}
+
+func TestAgentArgv(t *testing.T) {
+	got := (&Agent{Provider: ProviderClaudeCode, Prompt: "--dangerously-skip-permissions; rm -rf /"}).Argv()
+	want := []string{"claude", "-p", "--output-format", "text", "--max-turns", "10",
+		"--allowedTools=Read,Grep,Glob", "--", "--dangerously-skip-permissions; rm -rf /"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Argv() =\n%q\nwant\n%q", got, want)
+	}
+
+	got = (&Agent{Provider: ProviderClaudeCode, Prompt: "fix it", Model: "m", MaxTurns: 3, Tools: []string{"Edit", "Bash(go test:*)"}}).Argv()
+	want = []string{"claude", "-p", "--output-format", "text", "--max-turns", "3",
+		"--allowedTools=Edit,Bash(go test:*)", "--model", "m", "--", "fix it"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Argv() =\n%q\nwant\n%q", got, want)
 	}
 }
