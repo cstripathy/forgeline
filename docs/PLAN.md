@@ -7,35 +7,47 @@ session (cloud or local) can pick it up with no other context. Update it as step
 
 Open this repository in Claude Code and paste:
 
-> Read CLAUDE.md and docs/PLAN.md. Do the first unfinished step in the M1 list. Work in small
-> commits, run `make ci` before each push, update the status in docs/PLAN.md and
-> docs/ROADMAP.md, and stop at the end of the step so I can review. Tell me what you
-> verified and what you did not.
+> Read CLAUDE.md and docs/PLAN.md. Do the first item under "Next steps" that does not need a
+> decision from me. Work on a branch, in small commits, run `make ci` before each push, open a
+> pull request and stop so I can review. Update docs/PLAN.md and docs/ROADMAP.md as part of the
+> change. Tell me what you verified and what you did not.
 
-## Where things stand
+## Where things stand (updated 2026-10-28)
 
-- M0 foundation: done. Repo, Apache-2.0 license, docs, Go skeleton, CI with a pinned checkout.
-- M1 step 1: done. `internal/pipeline` has the model, `Validate`, and a generated JSON Schema
-  with a drift test. `forgeline schema` prints it.
-- M1 step 2: done. `pipeline.Load` and `LoadFile` read YAML, reject unknown fields, and return
-  `*ValidationError` unchanged. Tests and `testdata/` cover valid, syntax error, unknown field,
-  empty, and multi-problem files.
-- M1 step 3: done. `pipeline.Plan` validates, detects cycles with the path in the error, and
-  returns parallelizable layers plus a dependents map.
-- M1 step 4: done, except the real-container test has not run here (no Docker daemon in the
-  dev sandbox). `internal/executor` has the `Executor` interface, `Docker` and `Fake`;
-  `internal/scheduler` runs a graph with bounded parallelism and skips dependents of failures.
-- M1 step 5: done. `docs/design/002-spec-extensions.md` defines `inputs`, the cache key, and
-  reserved `permissions`. Only `steps[].inputs` is in the types, schema and validation.
-- M1 step 6: done and verified on real Docker (see the verification note below). M1 is done.
-- Real Docker verification, 2026-10-21, on an `t4g.small` (arm64, Amazon Linux 2023, Docker, Alpine 3.24)
-  in ap-south-1: `forgeline run examples/hello` ran 3 steps, a second run was 3x cached, and
-  changing `src/a.txt` ran `shout-a` and `combine` and kept `shout-b` cached. The same example
-  succeeded through `forgeline server` backed by Postgres 18 in a container, with uploaded
-  source files used by the steps. Not yet covered: the unit test that needs Docker was not
-  run in CI, cancel and timeout against real containers, a failing step against real
-  containers, and any platform other than arm64 Linux.
-- Everything else is not started.
+`main` contains everything below. Pull requests #1 to #3 are merged; none are open.
+
+**Built and verified on real Docker**
+- M1: typed pipeline spec, YAML loader, DAG planner, Docker executor, scheduler, step caching,
+  `forgeline run`.
+- M2: `forgeline server` (REST API, runner, Postgres or in-memory run store), live logs,
+  GitHub webhook with commit statuses, a demo deployment on AWS (see `deploy/aws/README.md`).
+- M3 slice 1 (network permission, no-new-privileges) and slice 2 (secrets scoped to steps, private
+  env file, masking, never cached). Slices 3 to 5 are not built (see Next steps).
+- The web console (design note 006), replacing the M2 page: accounts and roles, saved and
+  versioned pipelines with a live graph, a write-only encrypted vault, GitHub configured at
+  runtime, platform and AWS overview, cloud changes that need a second administrator, an audit
+  log. Tailwind from the standalone CLI. Pictures: `docs/console/README.md`.
+
+**Built but only verified against stand-ins** (so say so, and do not claim more)
+- A cloud change *executed* against a real AWS account. Previews and a rejection were done on a
+  real account; execution was exercised only against `scripts/dev/fake-aws` and Go fakes.
+- The GitHub integration against the real GitHub API. It ran against `scripts/dev/fake-github.py`.
+- Session cookies over HTTPS behind a proxy (the `Secure` flag is unit tested, not browser tested).
+- Teardown of the demo stack (`deploy/aws/README.md`) has never been run.
+- Two server processes on one database (the last-administrator rule, the pipeline edit lock and
+  the per-target cloud lock are in-process).
+
+**Layout of the code** (what to read first)
+- `internal/pipeline`, `internal/scheduler`, `internal/executor`, `internal/cache`: the engine.
+- `internal/server`: the API. Console files are `console_*.go`; `github.go` is the webhook;
+  `runner.go` executes runs; `ui/` is the embedded front end (`ui/lib`, `ui/pages`, generated
+  `ui/app.css`).
+- `internal/docstore` (memory, file or Postgres documents), `internal/vault`, `internal/authn`,
+  `internal/secrets`, `internal/redact`: console storage, crypto and masking.
+- `web/tailwind.css` is the stylesheet source; `scripts/tailwind.sh` fetches the pinned CLI.
+- `docs/design/`: one note per decision. 005 (threat model) and 006 (console) are the live ones.
+
+**Earlier milestones, kept for the record** are described in the step sections below.
 
 ## Decisions already made
 
@@ -229,7 +241,7 @@ design note.
 - Done: `deploy/aws/forgeline-demo.yaml` and `deploy/aws/README.md`. Decisions from the
   maintainer: ap-south-1, about $15/month, reachable only through SSM port forwarding. Price
   check (AWS Pricing API): t4g.small $0.0112/h, gp3 $0.0912/GB-month, public IPv4 $0.005/h,
-  about $13.7/month. Stack `forgeline-demo` in account 181286537717 created and verified
+  about $13.7/month. Stack `forgeline-demo` in the maintainer's AWS account created and verified
   (service active, health ok, real runs). The repeatable teardown is documented but was not
   exercised yet, so the first real delete is the test of it. The browser UI has not been
   checked through the tunnel on this deployment.
@@ -285,6 +297,41 @@ Design: [docs/design/006-console.md](design/006-console.md). Pictures: [docs/con
   ES modules, no innerHTML anywhere (a test enforces it), strict CSP.
 - Not checked: a change executed against a real AWS account, the real GitHub API, TLS, several
   server processes on one database. The list is in the design note.
+
+## Next steps (in order)
+
+Do these top to bottom. Items marked **needs a decision** must wait for the maintainer; ask once,
+with a recommendation, and do something else meanwhile.
+
+1. **Verify the unverified.** None needs new code, only a real run and an honest note.
+   - Execute one cloud change on the maintainer's real AWS account through the console, for
+     example starting the stopped demo instance (about $0.01 an hour; say so first and stop it
+     afterwards). Needs the maintainer to be logged in (`aws sso login`).
+   - Send a real GitHub webhook delivery (needs a public HTTPS address and a fine-grained token;
+     a tunnel such as `cloudflared` works). Check the commit status appears on the commit.
+   - Run the documented teardown of the demo stack once, so the documentation is tested.
+   - Put the console behind a TLS proxy and confirm the session cookie is `Secure`.
+2. **M3 slice 3, trust of the run (T4, T5).** Each run is trusted or untrusted by how it started;
+   untrusted runs get no secrets. Today GitHub-started runs are refused secrets outright and
+   console runs are trusted. **Needs a decision**: are same-repository pull requests untrusted
+   (the recommendation in note 005)? Add a `trust` field to runs, show it in the console, and
+   test that an untrusted run asks for a secret and is refused before any container starts.
+3. **M3 slice 4, audit log.** Mostly present through the console's audit log (who started a run,
+   secret changes, cloud approvals, refusals). Missing: an event for each secret *grant* to a
+   step, the secrets-plus-network combination from note 005, an export, and pagination beyond
+   the 5000 most recent events when filtering. Say in note 005 which T-rows this closes.
+4. **M3 slice 5, limits and capability drop.** **Needs a decision** on how much compatibility to
+   trade (note 005, decision 2). Then memory, PID and CPU limits and `--cap-drop`.
+5. **Console hardening.** Postgres advisory locks (or a `SELECT ... FOR UPDATE`) for the
+   in-process locks; a list of active sessions with revoke; a master-key rotation command;
+   a committed browser test (the scripted checks in `docs/console/README.md` were done by hand
+   with Playwright; a repeatable one needs Node or a Go browser driver, **needs a decision**);
+   OIDC single sign-on (**needs a decision**: which provider first).
+6. **M2b onboarding (note 004).** Part of it now exists: AWS read-only discovery (stacks and
+   instances, not yet ECS and ECR) and GitHub connection are in the console. Re-scope O1 to O6
+   against what is built, then do ECS and ECR discovery and the plan and apply engine. The three
+   decisions at the end of note 004 are still open.
+7. **M4 onward** are outlined in `docs/ROADMAP.md`. Plan each when the one before it is done.
 
 ## After M3 (outline only)
 
