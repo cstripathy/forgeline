@@ -49,13 +49,35 @@ func execRunner(ctx context.Context, name string, args ...string) ([]byte, strin
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(cmd.Environ(), "AWS_PAGER=", "AWS_RETRY_MODE=standard", "AWS_MAX_ATTEMPTS=2")
 	if extra, ok := ctx.Value(extraEnvKey{}).([]string); ok {
-		cmd.Env = append(cmd.Env, extra...) // later entries win
+		cmd.Env = mergeEnv(cmd.Env, extra)
 	}
 	var out, errb limitedBuffer
 	out.max, errb.max = maxCmdOutput, 1<<16
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
 	return out.b.Bytes(), strings.TrimSpace(errb.b.String()), err
+}
+
+// mergeEnv applies extra to base. A NAME= entry with no value removes NAME: the AWS CLI reads an
+// empty AWS_PROFILE as a profile called "" and fails, so "cleared" has to mean "unset".
+func mergeEnv(base, extra []string) []string {
+	drop := map[string]bool{}
+	for _, e := range extra {
+		name, _, _ := strings.Cut(e, "=")
+		drop[name] = true
+	}
+	out := make([]string, 0, len(base)+len(extra))
+	for _, e := range base {
+		if name, _, _ := strings.Cut(e, "="); !drop[name] {
+			out = append(out, e)
+		}
+	}
+	for _, e := range extra {
+		if _, v, _ := strings.Cut(e, "="); v != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 type limitedBuffer struct {
