@@ -93,6 +93,10 @@ type Server struct {
 	run      cmdRunner // runs docker and aws; replaced in tests
 	awsCache awsCache
 
+	ghApp     ghAppRegistry // GitHub App setups waiting for GitHub
+	ghTokens  sync.Map      // "appID/installationID" -> *ghTokenCache
+	ghAppForm sync.Map      // state -> ghAppForm, what the launch page shows
+
 	assistLimiter rateLimiter // questions per person per minute
 	cloud         cloudState
 

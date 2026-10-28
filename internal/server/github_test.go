@@ -50,7 +50,23 @@ type fakeGitHub struct {
 	mu       sync.Mutex
 	tarballs map[string][]byte // "owner/repo@sha" -> tar.gz
 	statuses []statusPost
-	gate     chan struct{} // if set, tarball requests wait for it to close
+	gate     chan struct{}   // if set, tarball requests wait for it to close
+	accepted map[string]bool // extra bearer tokens that count as valid (a GitHub App's installation tokens)
+}
+
+func (g *fakeGitHub) allow(token string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.accepted == nil {
+		g.accepted = map[string]bool{}
+	}
+	g.accepted[token] = true
+}
+
+func (g *fakeGitHub) tokenOK(auth string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return auth == "Bearer "+ghToken || (strings.HasPrefix(auth, "Bearer ") && g.accepted[strings.TrimPrefix(auth, "Bearer ")])
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
@@ -61,7 +77,7 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 }
 
 func (g *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Authorization") != "Bearer "+ghToken {
+	if !g.tokenOK(r.Header.Get("Authorization")) {
 		http.Error(w, `{"message":"Bad credentials"}`, http.StatusUnauthorized)
 		return
 	}

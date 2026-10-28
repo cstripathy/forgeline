@@ -38,6 +38,9 @@ type GitHubConfig struct {
 	// Token is a fine-grained personal access token with read access to contents and
 	// write access to commit statuses on the allowed repositories.
 	Token string
+	// TokenFunc, if set, supplies the token for each request (a GitHub App's short-lived
+	// installation token) and replaces Token.
+	TokenFunc func(ctx context.Context) (string, error)
 	// Allow lists the repositories and branches that may trigger runs. Required.
 	Allow []RepoRule
 	// APIBase is the GitHub API root. Empty means https://api.github.com. Plain http is
@@ -83,7 +86,7 @@ func validateGitHub(c *GitHubConfig) error {
 	switch {
 	case len(c.WebhookSecret) < MinTokenLength:
 		return fmt.Errorf("github: webhook secret must be at least %d characters", MinTokenLength)
-	case c.Token == "":
+	case c.Token == "" && c.TokenFunc == nil:
 		return errors.New("github: a token is required to download commits and post statuses")
 	case len(c.Allow) == 0:
 		return errors.New("github: Allow is empty; list at least one repository and its branches")
@@ -438,7 +441,9 @@ func (s *Server) fetchCommit(ctx context.Context, repo, sha, dst string) (skippe
 	if err != nil {
 		return 0, err
 	}
-	s.githubHeaders(req)
+	if err := s.githubHeaders(req); err != nil {
+		return 0, err
+	}
 	resp, err := gh.HTTPClient.Do(req)
 	if err != nil {
 		return 0, err
@@ -457,13 +462,22 @@ func (s *Server) fetchCommit(ctx context.Context, repo, sha, dst string) (skippe
 	return skipped, nil
 }
 
-func (s *Server) githubHeaders(req *http.Request) {
+func (s *Server) githubHeaders(req *http.Request) error {
 	if gh := s.gh(); gh != nil {
-		req.Header.Set("Authorization", "Bearer "+gh.Token)
+		token := gh.Token
+		if gh.TokenFunc != nil {
+			t, err := gh.TokenFunc(req.Context())
+			if err != nil {
+				return err
+			}
+			token = t
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "forgeline")
+	return nil
 }
 
 // postStatus reports a commit status. Failure is logged and never changes a run's result.
@@ -487,7 +501,10 @@ func (s *Server) postStatus(repo, sha, state, descr, runID string) {
 		s.log.Warn("github status: building request", "err", err)
 		return
 	}
-	s.githubHeaders(req)
+	if err := s.githubHeaders(req); err != nil {
+		s.log.Warn("github status: getting a token", "err", err)
+		return
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := gh.HTTPClient.Do(req)
 	if err != nil {

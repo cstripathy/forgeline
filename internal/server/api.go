@@ -81,6 +81,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/integrations/github", s.requireRole(authn.Developer, s.handleGetGitHub))
 	mux.Handle("PUT /v1/integrations/github", s.requireRole(authn.Admin, s.handlePutGitHub))
 	mux.Handle("DELETE /v1/integrations/github", s.requireRole(authn.Admin, s.handleDeleteGitHub))
+	mux.Handle("POST /v1/integrations/github/app/start", s.requireRole(authn.Admin, s.handleGHAppStart))
+	mux.Handle("GET /v1/integrations/github/app/launch", s.requireRole(authn.Admin, s.handleGHAppLaunch))
+	mux.HandleFunc("GET /v1/integrations/github/app/callback", s.handleGHAppCallback)
+	mux.Handle("GET /v1/integrations/github/app/installations", s.requireRole(authn.Admin, s.handleGHAppInstallations))
+	mux.Handle("GET /v1/integrations/github/app/repos", s.requireRole(authn.Admin, s.handleGHAppRepos))
+	mux.Handle("POST /v1/integrations/github/app/install", s.requireRole(authn.Admin, s.handleGHAppInstall))
 	mux.Handle("POST /v1/integrations/github/test", s.requireRole(authn.Admin, s.handleTestGitHub))
 	return mux
 }

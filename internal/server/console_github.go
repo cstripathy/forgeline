@@ -93,9 +93,15 @@ type githubSettings struct {
 	PublicURL    string       `json:"public_url,omitempty"`
 	PipelineFile string       `json:"pipeline_file,omitempty"`
 	Rules        []githubRule `json:"rules"`
-	UpdatedAt    time.Time    `json:"updated_at"`
-	UpdatedBy    string       `json:"updated_by"`
-	_            struct{}     `json:"-"`
+	// A GitHub App created from the console (design note 010). When AppID is set, the app's
+	// installation token is used in place of a personal access token.
+	AppID          int64     `json:"app_id,omitempty"`
+	AppSlug        string    `json:"app_slug,omitempty"`
+	AppURL         string    `json:"app_url,omitempty"`
+	InstallationID int64     `json:"installation_id,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	UpdatedBy      string    `json:"updated_by"`
+	_              struct{}  `json:"-"`
 }
 
 type githubRule struct {
@@ -112,8 +118,8 @@ func (st githubSettings) rules() []RepoRule {
 }
 
 // buildGitHub assembles and validates a config from settings and the two secrets.
-func buildGitHub(st githubSettings, token, webhook string, base *GitHubConfig) (*GitHubConfig, error) {
-	c := &GitHubConfig{WebhookSecret: webhook, Token: token, Allow: st.rules(), APIBase: st.APIBase,
+func buildGitHub(st githubSettings, token, webhook string, base *GitHubConfig, tokenFn func(context.Context) (string, error)) (*GitHubConfig, error) {
+	c := &GitHubConfig{WebhookSecret: webhook, Token: token, TokenFunc: tokenFn, Allow: st.rules(), APIBase: st.APIBase,
 		PublicURL: st.PublicURL, PipelineFile: st.PipelineFile}
 	if base != nil { // keep test hooks such as a custom HTTP client
 		c.HTTPClient, c.MaxCheckouts = base.HTTPClient, base.MaxCheckouts
@@ -142,7 +148,11 @@ func (s *Server) reloadGitHub(ctx context.Context) error {
 	}
 	token, _ := s.internalSecretValue(ctx, ghTokenSecret)
 	webhook, _ := s.internalSecretValue(ctx, ghWebhookSecret)
-	c, err := buildGitHub(st, token, webhook, s.ghCfg.Load())
+	var tokenFn func(context.Context) (string, error)
+	if st.AppID != 0 && st.InstallationID != 0 {
+		token, tokenFn = "", s.installationTokenFunc(st)
+	}
+	c, err := buildGitHub(st, token, webhook, s.ghCfg.Load(), tokenFn)
 	if err != nil {
 		s.ghCfg.Store(nil)
 		s.ghSource.Store("console")
@@ -171,6 +181,8 @@ type GitHubJSON struct {
 	UpdatedAt        *time.Time     `json:"updated_at,omitempty"`
 	UpdatedBy        string         `json:"updated_by,omitempty"`
 	Deliveries       []DeliveryInfo `json:"deliveries"`
+	// App describes a GitHub App created from the console, if there is one.
+	App *GHAppJSON `json:"app,omitempty"`
 	// GeneratedWebhookSecret appears once, in the response that generated it.
 	GeneratedWebhookSecret string `json:"generated_webhook_secret,omitempty"`
 }
@@ -193,13 +205,20 @@ func (s *Server) githubView(ctx context.Context, r *http.Request) GitHubJSON {
 			out.PipelineFile = st.PipelineFile
 		}
 		out.PublicURL, out.Rules = st.PublicURL, st.Rules
+		if st.AppID != 0 {
+			out.App = &GHAppJSON{ID: st.AppID, Slug: st.AppSlug, URL: st.AppURL, InstallationID: st.InstallationID}
+		}
 		out.UpdatedAt, out.UpdatedBy = &st.UpdatedAt, st.UpdatedBy
 		_, out.TokenSet = s.internalSecretValue(ctx, ghTokenSecret)
 		_, out.WebhookSecretSet = s.internalSecretValue(ctx, ghWebhookSecret)
 		if st.Enabled && active == nil && (s.secretUnreadable(ctx, ghTokenSecret) || s.secretUnreadable(ctx, ghWebhookSecret)) {
 			out.Problem = "the stored token or webhook secret cannot be opened with this server's master key; set FORGELINE_MASTER_KEY to the key they were saved with, or save them again"
 		} else if st.Enabled && active == nil {
-			if _, err := buildGitHub(st, mustSecret(s, ctx, ghTokenSecret), mustSecret(s, ctx, ghWebhookSecret), nil); err != nil {
+			var fn func(context.Context) (string, error)
+			if st.AppID != 0 && st.InstallationID != 0 {
+				fn = s.installationTokenFunc(st)
+			}
+			if _, err := buildGitHub(st, mustSecret(s, ctx, ghTokenSecret), mustSecret(s, ctx, ghWebhookSecret), nil, fn); err != nil {
 				out.Problem = strings.TrimPrefix(err.Error(), "github: ")
 			}
 		}
@@ -273,6 +292,13 @@ func (s *Server) handlePutGitHub(w http.ResponseWriter, r *http.Request) {
 	if st.Rules == nil {
 		st.Rules = []githubRule{}
 	}
+	var prev githubSettings
+	_ = s.docs.Get(ctx, kindSettings, idGitHub, &prev)
+	st.AppID, st.AppSlug, st.AppURL, st.InstallationID = prev.AppID, prev.AppSlug, prev.AppURL, prev.InstallationID
+	var tokenFn func(context.Context) (string, error)
+	if st.AppID != 0 && st.InstallationID != 0 && req.Token == "" {
+		tokenFn = s.installationTokenFunc(st)
+	}
 
 	token, _ := s.internalSecretValue(ctx, ghTokenSecret)
 	webhook, _ := s.internalSecretValue(ctx, ghWebhookSecret)
@@ -300,7 +326,7 @@ func (s *Server) handlePutGitHub(w http.ResponseWriter, r *http.Request) {
 	// Validate everything before changing anything. A disabled integration is saved as the
 	// operator left it, but its repositories must still be well formed.
 	if req.Enabled {
-		if _, err := buildGitHub(st, token, webhook, s.ghCfg.Load()); err != nil {
+		if _, err := buildGitHub(st, token, webhook, s.ghCfg.Load(), tokenFn); err != nil {
 			writeError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), "github: "))
 			return
 		}
@@ -364,7 +390,7 @@ func (s *Server) handleDeleteGitHub(w http.ResponseWriter, r *http.Request) {
 	s.ghMu.Lock()
 	defer s.ghMu.Unlock()
 	ctx := r.Context()
-	for _, name := range []string{ghTokenSecret, ghWebhookSecret} {
+	for _, name := range []string{ghTokenSecret, ghWebhookSecret, ghAppKeySecret} {
 		if err := s.docs.Delete(ctx, kindSecret, name); err != nil && !errors.Is(err, docstore.ErrNotFound) {
 			s.internalError(w, "removing a secret", err)
 			return
@@ -414,7 +440,9 @@ func (s *Server) checkRepo(ctx context.Context, gh *GitHubConfig, repo string) R
 	if err != nil {
 		return RepoCheck{Repo: repo, Message: err.Error()}
 	}
-	s.githubHeaders(req)
+	if err := s.githubHeaders(req); err != nil {
+		return RepoCheck{Repo: repo, Message: err.Error()}
+	}
 	resp, err := gh.HTTPClient.Do(req)
 	if err != nil {
 		return RepoCheck{Repo: repo, Message: "could not reach GitHub: " + err.Error()}
@@ -435,4 +463,12 @@ func (s *Server) checkRepo(ctx context.Context, gh *GitHubConfig, repo string) R
 		c.Message = fmt.Sprintf("GitHub answered %d", resp.StatusCode)
 	}
 	return c
+}
+
+// GHAppJSON is the GitHub App connected from the console.
+type GHAppJSON struct {
+	ID             int64  `json:"id"`
+	Slug           string `json:"slug"`
+	URL            string `json:"url,omitempty"`
+	InstallationID int64  `json:"installation_id,omitempty"`
 }
