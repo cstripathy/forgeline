@@ -25,6 +25,7 @@ Open this repository in Claude Code and paste:
   env file, masking, never cached). Slices 3 to 5 are not built (see Next steps).
 - Agent steps (design note 007): `agent:` with provider `claude-code`, read-only tools by default, credential from the vault. Built and run on real Docker with a real `setup-token` login. Console runs have no source checkout yet, so the agent sees an empty workspace.
 - The assistant (design note 008): a read-only helper in the console's top bar. Verified in a browser with the local `claude`; the API-key backend only against a stand-in.
+- AWS sign-in from the console (design note 009): IAM Identity Center device login, account and role chosen in the UI. Verified against `scripts/dev/fake-sso.py`; the real AWS accepted the registration and device-code steps, **the approval, token, account, role and credential steps were not run against real AWS**.
 - GitHub from the console (design note 010): "Connect with a GitHub App" creates a private app (manifest flow), installs it and picks repositories; Forgeline signs in with short-lived installation tokens. Verified against `scripts/dev/fake-github.py`; **not against real GitHub**.
 - The web console (design note 006), replacing the M2 page: accounts and roles, saved and
   versioned pipelines with a live graph, a write-only encrypted vault, GitHub configured at
