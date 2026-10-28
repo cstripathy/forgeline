@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -370,4 +372,34 @@ func (s *Server) dropAWSCacheForTest() {
 	s.awsCache.mu.Lock()
 	s.awsCache.key, s.awsCache.cost = "", nil
 	s.awsCache.mu.Unlock()
+}
+
+func TestMergeEnvUnsetsClearedNames(t *testing.T) {
+	base := []string{"PATH=/bin", "AWS_PROFILE=old", "AWS_DEFAULT_PROFILE=old", "KEEP=1"}
+	got := mergeEnv(base, []string{"AWS_ACCESS_KEY_ID=a", "AWS_PROFILE=", "AWS_DEFAULT_PROFILE="})
+	joined := "\n" + strings.Join(got, "\n") + "\n"
+	for _, bad := range []string{"\nAWS_PROFILE", "\nAWS_DEFAULT_PROFILE"} {
+		if strings.Contains(joined, bad) {
+			t.Errorf("%s is still set (even empty, the real AWS CLI fails on it): %q", bad, got)
+		}
+	}
+	if !strings.Contains(joined, "\nAWS_ACCESS_KEY_ID=a\n") || !strings.Contains(joined, "\nKEEP=1\n") {
+		t.Errorf("lost a variable: %q", got)
+	}
+}
+
+// The real runner, with a stand-in `aws` that behaves like the real CLI about an empty AWS_PROFILE.
+func TestExecRunnerClearedProfileIsUnset(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nif [ \"${AWS_PROFILE+set}\" = set ]; then echo \"profile set\" >&2; exit 1; fi\necho \"$AWS_ACCESS_KEY_ID\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "aws"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("AWS_PROFILE", "from-the-server")
+	ctx := withExtraEnv(context.Background(), []string{"AWS_ACCESS_KEY_ID=AKIA1", "AWS_PROFILE=", "AWS_DEFAULT_PROFILE="})
+	out, errText, err := execRunner(ctx, "aws")
+	if err != nil || strings.TrimSpace(string(out)) != "AKIA1" {
+		t.Fatalf("out=%q err=%v stderr=%q", out, err, errText)
+	}
 }
