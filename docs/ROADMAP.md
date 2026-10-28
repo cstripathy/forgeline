@@ -16,9 +16,9 @@ in [PLAN.md](PLAN.md).
 | M2b | Onboarding and connectors | Sign-in wizard: connect GitHub and AWS, discover ECS resources, reviewable plan, approved setup, connection tests, and a GitHub-to-AWS deploy workflow; see [design/004](design/004-onboarding-and-connectors.md) | Partly overtaken by the console (AWS read-only view, GitHub connection); to be re-scoped |
 | M2c | Web console | Sign-in and roles; pipelines edited in the browser; secrets, GitHub and AWS connected from the UI; platform and cloud overview; cloud changes through proposal and approval; an audit log; see [design/006](design/006-console.md) | Built; see its list of what was not checked |
 | M3 | Trust and sandbox model | Per-step declared permissions; secrets scoped to steps; untrusted input isolated from secrets; audit log; a published threat model with tests that try to break it | In progress: slices 1 and 2 done; 3 to 5 open |
-| M4 | Security gates | Scanner orchestration; findings normalized from SARIF; policy gates with expiring waivers; SBOM and image signing | Not started |
+| M4 | Security gates | Scanner orchestration; findings normalized from SARIF; policy gates with expiring waivers; SBOM and image signing | In progress: Claude Code agent steps built (note 007); Codex, Copilot, triage and cost tracking open |
 | M5 | Progressive delivery | One declaration for canary and blue-green on Kubernetes with metric-driven rollback | Not started |
-| M6 | AI agents | Governed agent steps with scoped credentials and cost tracking; failure triage; fix suggestions as pull requests, never auto-applied | Not started |
+| M6 | AI agents | Governed agent steps with scoped credentials and cost tracking; failure triage; fix suggestions as pull requests, never auto-applied | In progress: Claude Code agent steps built (note 007); Codex, Copilot, triage and cost tracking open |
 | M7 | Migration and breadth | Importers for Jenkinsfile and GitHub Actions workflows; Bitbucket and GitLab triggers; additional cloud targets | Not started |
 
 ## Open decisions

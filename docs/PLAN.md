@@ -14,7 +14,7 @@ Open this repository in Claude Code and paste:
 
 ## Where things stand (updated 2026-10-28)
 
-`main` contains everything below. Pull requests #1 to #3 are merged; none are open.
+`main` contains everything below. Pull requests #1 to #4 are merged; the agent-step PR is open.
 
 **Built and verified on real Docker**
 - M1: typed pipeline spec, YAML loader, DAG planner, Docker executor, scheduler, step caching,
@@ -23,6 +23,7 @@ Open this repository in Claude Code and paste:
   GitHub webhook with commit statuses, a demo deployment on AWS (see `deploy/aws/README.md`).
 - M3 slice 1 (network permission, no-new-privileges) and slice 2 (secrets scoped to steps, private
   env file, masking, never cached). Slices 3 to 5 are not built (see Next steps).
+- Agent steps (design note 007): `agent:` with provider `claude-code`, read-only tools by default, credential from the vault. Built and run on real Docker with a real `setup-token` login. Console runs have no source checkout yet, so the agent sees an empty workspace.
 - The web console (design note 006), replacing the M2 page: accounts and roles, saved and
   versioned pipelines with a live graph, a write-only encrypted vault, GitHub configured at
   runtime, platform and AWS overview, cloud changes that need a second administrator, an audit
@@ -45,7 +46,7 @@ Open this repository in Claude Code and paste:
 - `internal/docstore` (memory, file or Postgres documents), `internal/vault`, `internal/authn`,
   `internal/secrets`, `internal/redact`: console storage, crypto and masking.
 - `web/tailwind.css` is the stylesheet source; `scripts/tailwind.sh` fetches the pinned CLI.
-- `docs/design/`: one note per decision. 005 (threat model) and 006 (console) are the live ones.
+- `docs/design/`: one note per decision. 005 (threat model), 006 (console) and 007 (agent steps) are the live ones.
 
 **Earlier milestones, kept for the record** are described in the step sections below.
 

@@ -129,6 +129,9 @@ export async function pipelineEditorPage({ params }) {
     return modal('Add a step', (close) => {
       const idIn = h('input', { id: 'sid', class: 'input', placeholder: 'build', pattern: '[a-z][a-z0-9-]*' });
       const imgIn = h('input', { id: 'simg', class: 'input', value: 'alpine:3.24' });
+      const kind = h('select', { id: 'skind', class: 'input' }, h('option', { value: 'script' }, 'Script'), h('option', { value: 'claude-code' }, 'Claude Code agent'));
+      kind.addEventListener('change', () => { if (kind.value === 'claude-code' && imgIn.value === 'alpine:3.24') imgIn.value = 'forgeline-agent-claude'; });
+      const toolsIn = h('input', { id: 'stools', class: 'input', placeholder: 'Read, Grep, Glob (read-only if empty)' });
       const cmd = h('textarea', { id: 'scmd', class: 'input h-28 font-mono text-[13px]', placeholder: 'echo hello', spellcheck: 'false' });
       const net = h('select', { id: 'snet', class: 'input' }, h('option', { value: '' }, 'Allowed (default)'), h('option', { value: 'none' }, 'None: no network at all'));
       const to = h('input', { id: 'sto', class: 'input', placeholder: '10m (optional)' });
@@ -137,8 +140,10 @@ export async function pipelineEditorPage({ params }) {
       const err = h('div', { class: 'mt-3 hidden' });
       const checks = (items, empty) => h('div', { class: 'flex flex-wrap gap-x-4 gap-y-1.5' }, items.length ? items.map(i => h('label', { class: 'flex items-center gap-1.5 text-sm' }, i.box, i.s)) : h('span', { class: 'muted text-sm' }, empty));
       return h('div', { class: 'space-y-4' },
+        field('Kind', kind, 'A Claude Code agent runs the claude command line in the image with your prompt. It needs a login secret ticked below (CLAUDE_CODE_OAUTH_TOKEN from claude setup-token, or ANTHROPIC_API_KEY).'),
         h('div', { class: 'grid gap-4 sm:grid-cols-2' }, field('Step id', idIn, 'Lowercase letters, digits and hyphens.'), field('Container image', imgIn, 'Pin a version or digest.')),
-        field('Command', cmd, 'A shell script, one command per line.'),
+        field('Command or prompt', cmd, 'Script: one command per line. Agent: what to ask it.'),
+        field('Agent tools', toolsIn, 'Agent only. Comma separated, for example Read, Edit, Bash(go test:*). The agent cannot ask for approval in a pipeline, so anything not listed is refused.'),
         field('Runs after', checks(needs, 'No other steps yet.'), 'Steps that must succeed first.'),
         h('div', { class: 'grid gap-4 sm:grid-cols-2' }, field('Network access', net), field('Time limit', to)),
         field('Secrets this step may read', checks(secs, 'No secrets exist yet. Add them under Secrets.'), 'The step receives only what you tick.'), err,
@@ -153,7 +158,16 @@ export async function pipelineEditorPage({ params }) {
             const idx = text.search(/^steps:\s*$/m);
             if (idx < 0 || /^[A-Za-z]/m.test(text.slice(idx + 6))) return fail('The steps list is not at the end of the file, so the step cannot be added automatically. Add it by hand.');
             const pick = (items) => items.filter(i => i.box.checked).map(i => i.s);
-            let b = `  - id: ${sid}\n    image: ${imgIn.value.trim()}\n    run: |\n` + cmd.value.replace(/\s+$/, '').split('\n').map(l => '      ' + l).join('\n') + '\n';
+            const agent = kind.value === 'claude-code';
+            let b = `  - id: ${sid}\n    image: ${imgIn.value.trim()}\n`;
+            if (agent) {
+              // JSON strings are valid double-quoted YAML scalars, so the prompt needs no hand escaping.
+              b += `    agent:\n      provider: claude-code\n      prompt: ${JSON.stringify(cmd.value.trim())}\n`;
+              const tools = toolsIn.value.split(',').map(t => t.trim()).filter(Boolean);
+              if (tools.length) b += `      tools: [${tools.map(t => JSON.stringify(t)).join(', ')}]\n`;
+            } else {
+              b += `    run: |\n` + cmd.value.replace(/\s+$/, '').split('\n').map(l => '      ' + l).join('\n') + '\n';
+            }
             if (pick(needs).length) b += `    needs: [${pick(needs).join(', ')}]\n`;
             const ps = pick(secs);
             if (net.value || ps.length) { b += '    permissions:\n'; if (net.value) b += `      network: ${net.value}\n`; if (ps.length) b += `      secrets: [${ps.join(', ')}]\n`; }

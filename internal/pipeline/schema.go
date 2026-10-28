@@ -88,6 +88,8 @@ func (g *generator) object(t reflect.Type) (map[string]any, error) {
 
 func (g *generator) typ(t reflect.Type) (map[string]any, error) {
 	switch t.Kind() {
+	case reflect.Pointer:
+		return g.typ(t.Elem()) // an optional value is the same shape; json omitempty makes it optional
 	case reflect.String:
 		return map[string]any{"type": "string"}, nil
 	case reflect.Bool:
@@ -165,6 +167,15 @@ func applyTags(s map[string]any, f reflect.StructField) error {
 			return fmt.Errorf("bad minItems %q", v)
 		}
 		s["minItems"] = n
+	}
+	for _, key := range []string{"minimum", "maximum"} {
+		if v, ok := f.Tag.Lookup(key); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("bad %s %q", key, v)
+			}
+			s[key] = n
+		}
 	}
 	if v, ok := f.Tag.Lookup("itemPattern"); ok {
 		items, ok := s["items"].(map[string]any)

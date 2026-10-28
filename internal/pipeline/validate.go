@@ -82,12 +82,16 @@ func (p *Pipeline) Validate() error {
 		hasRun := strings.TrimSpace(s.Run) != ""
 		hasCommand := len(s.Command) > 0
 		switch {
-		case hasRun && hasCommand:
-			add(path, "set exactly one of run or command, not both")
-		case !hasRun && !hasCommand:
-			add(path, "set exactly one of run or command")
+		case countTrue(hasRun, hasCommand, s.Agent != nil) > 1:
+			add(path, "set exactly one of run, command or agent, not several")
+		case !hasRun && !hasCommand && s.Agent == nil:
+			add(path, "set exactly one of run, command or agent")
 		case hasCommand && strings.TrimSpace(s.Command[0]) == "":
 			add(path+".command[0]", "the program name must not be empty")
+		}
+
+		if s.Agent != nil {
+			validateAgent(s, path, add)
 		}
 
 		seenNeeds := make(map[string]bool, len(s.Needs))
@@ -187,4 +191,49 @@ func checkGlob(pat string) string {
 		}
 	}
 	return ""
+}
+
+func countTrue(bs ...bool) int {
+	n := 0
+	for _, b := range bs {
+		if b {
+			n++
+		}
+	}
+	return n
+}
+
+// validateAgent checks an agent step: a known provider, a prompt, sane tools, a network to reach
+// the vendor and a credential requested through permissions.secrets.
+func validateAgent(s Step, path string, add func(path, format string, args ...any)) {
+	a := s.Agent
+	apath := path + ".agent"
+	creds, ok := AgentCredentials[a.Provider]
+	if !ok {
+		add(apath+".provider", "unknown provider %q; supported: %s", a.Provider, ProviderClaudeCode)
+		return
+	}
+	if strings.TrimSpace(a.Prompt) == "" {
+		add(apath+".prompt", "is required")
+	}
+	if a.MaxTurns < 0 || a.MaxTurns > 100 {
+		add(apath+".maxTurns", "must be between 1 and 100, got %d", a.MaxTurns)
+	}
+	for j, t := range a.Tools {
+		if strings.TrimSpace(t) == "" || strings.ContainsAny(t, ",\n") {
+			add(fmt.Sprintf("%s.tools[%d]", apath, j), "must be a single tool name or pattern without commas, got %q", t)
+		}
+	}
+	if s.Permissions.Network == NetworkNone {
+		add(path+".permissions.network", "an agent step needs network access to reach its provider")
+	}
+	has := false
+	for _, name := range s.Permissions.Secrets {
+		for _, c := range creds {
+			has = has || name == c
+		}
+	}
+	if !has {
+		add(path+".permissions.secrets", "an agent step must request one of: %s", strings.Join(creds, ", "))
+	}
 }

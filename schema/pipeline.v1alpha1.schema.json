@@ -1,5 +1,44 @@
 {
   "$defs": {
+    "Agent": {
+      "additionalProperties": false,
+      "properties": {
+        "maxTurns": {
+          "description": "Most turns the agent may take. Empty means 10.",
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "model": {
+          "description": "Model name to pass to the agent. Empty uses the agent's default.",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "What to ask the agent. It is passed as a single argument, never through a shell.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "description": "Which agent to run. Only claude-code so far.",
+          "enum": [
+            "claude-code"
+          ],
+          "type": "string"
+        },
+        "tools": {
+          "description": "Tools the agent may use, for example Read, Grep, Edit, Bash(go test:*). Empty means read-only: Read, Grep, Glob. A tool not listed is refused, because the agent cannot ask for approval in a pipeline.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "provider",
+        "prompt"
+      ],
+      "type": "object"
+    },
     "Permissions": {
       "additionalProperties": false,
       "properties": {
@@ -37,6 +76,10 @@
         }
       ],
       "properties": {
+        "agent": {
+          "$ref": "#/$defs/Agent",
+          "description": "Run a coding agent with a prompt instead of a script. The image must contain the agent's command line. Set this or run or command."
+        },
         "command": {
           "description": "Command and arguments, run without a shell. Set this or run, not both.",
           "items": {
