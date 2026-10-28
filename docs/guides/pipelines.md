@@ -39,7 +39,7 @@ steps:
 | --- | --- |
 | `id` | Unique name inside the pipeline. |
 | `image` | Container image. Required. |
-| `run` / `command` / `agent` | **Exactly one.** `run` is a shell script, `command` an argument list with no shell, `agent` a coding agent. |
+| `run` / `command` / `agent` / `workflow` | **Exactly one.** `run` is a shell script, `command` an argument list with no shell, `agent` a coding agent, `workflow` starts a [GitHub Actions workflow]({{ '/guides/github-actions/' | relative_url }}) and waits for it (it has no image or permissions). |
 | `needs` | Steps that must succeed first. Steps with no dependency between them run in parallel. |
 | `inputs` | Files the step reads. If none changed since the last good run, the step is served from the cache (`--no-cache` turns that off). |
 | `env`, `workdir`, `timeout` | Environment, working directory, and a time limit such as `10m`. |

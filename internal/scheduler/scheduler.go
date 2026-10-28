@@ -73,6 +73,12 @@ type Options struct {
 	// The run still executes steps that request none. Use it for runs that must not hold
 	// secrets, such as ones started by untrusted input.
 	SecretsDenied string
+	// Workflow runs a workflow step: it starts a GitHub Actions workflow and, unless the step is
+	// detached, waits for it. It returns nil when the step succeeded. Nil means this runner cannot
+	// do it (the command line, for one), and such steps fail with a message saying so.
+	Workflow func(ctx context.Context, s *pipeline.Step, logs io.Writer) error
+	// WorkflowDenied, if not empty, refuses every workflow step and says why, like SecretsDenied.
+	WorkflowDenied string
 	// OnStepStart, if set, is called just before a step is handed to the executor.
 	OnStepStart func(stepID string)
 	// OnStepDone, if set, is called once for every step with its final result, including
@@ -146,6 +152,9 @@ func runStep(ctx context.Context, s *pipeline.Step, ex executor.Executor, opts O
 	if err := ctx.Err(); err != nil {
 		return StepResult{ID: s.ID, Status: StatusCanceled, Err: err}
 	}
+	if s.Workflow != nil {
+		return runWorkflowStep(ctx, s, opts)
+	}
 	run, err := toStepRun(s, opts.Workspace)
 	if err != nil {
 		return StepResult{ID: s.ID, Status: StatusFailed, Err: err}
@@ -180,6 +189,56 @@ func runStep(ctx context.Context, s *pipeline.Step, ex executor.Executor, opts O
 		out.Status = StatusCached
 	default:
 		out.Status = StatusSucceeded
+	}
+	return out
+}
+
+// runWorkflowStep runs a step that starts a GitHub workflow. The work happens in opts.Workflow, on
+// the server; no container is involved, so none of the executor's rules apply, and the step needs
+// the server's own approval (WorkflowDenied) instead.
+func runWorkflowStep(ctx context.Context, s *pipeline.Step, opts Options) StepResult {
+	fail := func(err error) StepResult { return StepResult{ID: s.ID, Status: StatusFailed, Err: err} }
+	switch {
+	case opts.WorkflowDenied != "":
+		return fail(fmt.Errorf("workflow step refused: %s", opts.WorkflowDenied))
+	case opts.Workflow == nil:
+		return fail(errors.New("workflow steps run only on a Forgeline server that is connected to GitHub, not here"))
+	}
+	if s.Timeout != "" {
+		d, err := time.ParseDuration(s.Timeout)
+		if err != nil {
+			return fail(fmt.Errorf("timeout: %w", err))
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d)
+		defer cancel()
+	}
+	var logs io.Writer = io.Discard
+	if opts.Logs != nil {
+		logs = opts.Logs(s.ID)
+	}
+	if len(opts.Secrets) > 0 {
+		masked := redact.New(logs, secrets.Values(opts.Secrets))
+		logs = masked
+		defer masked.Close()
+	}
+	if opts.OnStepStart != nil {
+		opts.OnStepStart(s.ID)
+	}
+	start := time.Now()
+	err := opts.Workflow(ctx, s, logs)
+	out := StepResult{ID: s.ID, Duration: time.Since(start)}
+	switch {
+	case err == nil:
+		out.Status = StatusSucceeded
+	case ctx.Err() != nil && errors.Is(err, ctx.Err()):
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			out.Status, out.Err = StatusFailed, fmt.Errorf("step timed out after %s", s.Timeout)
+		} else {
+			out.Status, out.Err = StatusCanceled, ctx.Err()
+		}
+	default:
+		out.Status, out.Err = StatusFailed, err
 	}
 	return out
 }

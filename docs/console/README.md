@@ -33,3 +33,5 @@ approve and a second administrator rejected, so nothing in that account changed.
 | [34-actions-runs](34-actions-runs.png) | GitHub Actions page: the workflows of an allowed repository, and its runs with status, branch, event and who started them. A run from a fork carries a `fork` tag. A stand-in GitHub served the data |
 | [35-actions-run-log](35-actions-run-log.png) | A failed run: jobs and steps, the end of the job's log (shown as text), and Re-run buttons |
 | [36-actions-dispatch](36-actions-dispatch.png) | Starting a workflow: only branches allowed for the repository, optional inputs |
+| [37-workflow-step-builder](37-workflow-step-builder.png) | Adding a GitHub Actions workflow step from the form |
+| [38-workflow-step-run](38-workflow-step-run.png) | A run with a container step followed by a workflow step, its log showing GitHub's progress. A stand-in GitHub served the calls |

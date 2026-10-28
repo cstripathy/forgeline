@@ -210,3 +210,56 @@ func TestAgentArgv(t *testing.T) {
 		t.Fatalf("Argv() =\n%q\nwant\n%q", got, want)
 	}
 }
+
+func workflowStep(mut func(*Step)) *Pipeline {
+	p := validPipeline()
+	p.Steps = []Step{{ID: "ci", Workflow: &Workflow{Repo: "acme/widgets", Workflow: "ci.yml", Ref: "main", Inputs: map[string]string{"env": "staging"}}}}
+	if mut != nil {
+		mut(&p.Steps[0])
+	}
+	return &p
+}
+
+func TestValidateWorkflowStep(t *testing.T) {
+	if err := workflowStep(nil).Validate(); err != nil {
+		t.Fatalf("a good workflow step: %v", err)
+	}
+	if err := workflowStep(func(s *Step) { s.Workflow.Workflow = "123456"; s.Timeout = "20m"; s.Workflow.Detach = true }).Validate(); err != nil {
+		t.Fatalf("numeric id, timeout, detach: %v", err)
+	}
+	bad := map[string]func(*Step){
+		"repo without owner":     func(s *Step) { s.Workflow.Repo = "widgets" },
+		"repo with a slash path": func(s *Step) { s.Workflow.Repo = "acme/widgets/extra" },
+		"workflow with a path":   func(s *Step) { s.Workflow.Workflow = "../ci.yml" },
+		"workflow not yaml":      func(s *Step) { s.Workflow.Workflow = "ci.sh" },
+		"full ref":               func(s *Step) { s.Workflow.Ref = "refs/heads/main" },
+		"empty ref":              func(s *Step) { s.Workflow.Ref = "" },
+		"ref with a space":       func(s *Step) { s.Workflow.Ref = "my branch" },
+		"too many inputs": func(s *Step) {
+			s.Workflow.Inputs = map[string]string{}
+			for i := 0; i < 26; i++ {
+				s.Workflow.Inputs[string(rune('a'+i))] = "v"
+			}
+		},
+		"bad input name": func(s *Step) { s.Workflow.Inputs = map[string]string{"a b": "v"} },
+		"long input":     func(s *Step) { s.Workflow.Inputs = map[string]string{"a": strings.Repeat("x", 1001)} },
+		"with an image":  func(s *Step) { s.Image = "alpine" },
+		"with a script":  func(s *Step) { s.Run = "echo hi" },
+		"with an agent":  func(s *Step) { s.Agent = &Agent{Provider: ProviderClaudeCode, Prompt: "x"} },
+		"with secrets":   func(s *Step) { s.Permissions.Secrets = []string{"TOKEN"} },
+		"with env":       func(s *Step) { s.Env = map[string]string{"A": "b"} },
+		"with a network": func(s *Step) { s.Permissions.Network = NetworkEgress },
+		"bad timeout":    func(s *Step) { s.Timeout = "soon" },
+	}
+	for name, mut := range bad {
+		if err := workflowStep(mut).Validate(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// A normal step still needs an image.
+	p := validPipeline()
+	p.Steps[0].Image = ""
+	if p.Validate() == nil {
+		t.Error("a script step without an image was accepted")
+	}
+}

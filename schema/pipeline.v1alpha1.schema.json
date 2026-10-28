@@ -137,11 +137,50 @@
           "description": "Absolute working directory inside the container.",
           "pattern": "^/",
           "type": "string"
+        },
+        "workflow": {
+          "$ref": "#/$defs/Workflow",
+          "description": "Start a GitHub Actions workflow and wait for it, instead of running a container. Only the Forgeline server can do this (it holds the GitHub credentials); the step has no image, script, environment or permissions. Set this or run or command or agent."
         }
       },
       "required": [
         "id",
         "image"
+      ],
+      "type": "object"
+    },
+    "Workflow": {
+      "additionalProperties": false,
+      "properties": {
+        "detach": {
+          "description": "Do not wait: the step succeeds as soon as GitHub accepts the request. By default the step waits and fails if the workflow does not succeed.",
+          "type": "boolean"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Workflow inputs, at most 25, each value at most 1000 bytes.",
+          "type": "object"
+        },
+        "ref": {
+          "description": "Branch to run it on. It must be a branch the allow list permits for the repository.",
+          "type": "string"
+        },
+        "repo": {
+          "description": "Repository as owner/name. It must be on the server's GitHub allow list.",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "workflow": {
+          "description": "The workflow's file name such as ci.yml, or its number. The file needs on: workflow_dispatch.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo",
+        "workflow",
+        "ref"
       ],
       "type": "object"
     }
