@@ -2,6 +2,7 @@ import { h, icon, mount, pill, pageHeader, relTime, absTime, bytes, spinner, err
 import { get, put, post, atLeast } from '../lib/api.js';
 import { navigate } from '../lib/router.js';
 import { session } from '../app.js';
+import { ssoWizard } from './aws_sso.js';
 
 const TABS = [['platform', 'Platform'], ['aws', 'AWS account'], ['changes', 'Cloud changes']];
 
@@ -92,7 +93,7 @@ async function aws(body) {
     mount(body,
       h('div', { class: 'mb-4 flex flex-wrap items-center justify-between gap-3' },
         v.identity ? h('div', { class: 'flex items-center gap-3 text-sm' }, h('span', { class: 'pill-ok' }, 'Connected'),
-          h('span', {}, 'Account ', h('strong', { class: 'font-mono' }, v.identity.account)), h('span', { class: 'muted' }, 'region ' + v.region + (v.profile ? ' · profile ' + v.profile : '')),
+          h('span', {}, 'Account ', h('strong', { class: 'font-mono' }, v.identity.account)), h('span', { class: 'muted' }, 'region ' + v.region + (v.profile === 'forgeline-sso' ? ' · signed in from the console' : v.profile ? ' · profile ' + v.profile : '')),
           h('span', { class: 'muted hidden font-mono text-xs lg:inline' }, v.identity.arn)) : h('span', { class: 'pill-bad' }, 'Not reachable'),
         h('div', { class: 'flex gap-2' },
           h('button', { class: 'btn-secondary btn-sm', type: 'button', onclick: () => load(true) }, icon('refresh', 'size-3.5'), 'Refresh'),
@@ -104,23 +105,37 @@ async function aws(body) {
 
   function connectCard() {
     return h('div', { class: 'card card-pad mx-auto max-w-xl' }, h('div', { class: 'mb-3 flex items-center gap-2' }, icon('cloud', 'size-5'), h('h2', { class: 'text-base font-semibold' }, 'Connect an AWS account')),
-      h('p', { class: 'muted mb-4 text-sm' }, 'Forgeline uses the AWS command line on the server, with the named profile. In production, run the server with an IAM role and leave the profile empty. Everything it shows is read-only; changes go through approval.'),
+      h('p', { class: 'muted mb-4 text-sm' }, 'Sign in with your AWS single sign-on, approving in your own browser, or use a profile or IAM role already set up on the server. Everything it shows is read-only; changes go through approval.'),
       admin ? h('button', { class: 'btn-primary', type: 'button', onclick: () => connectModal(null) }, icon('plug', 'size-4'), 'Connect') : notice('info', 'An administrator can connect an account.'));
   }
 
   function connectModal(cur) {
     modal('AWS connection', (close) => {
-      const profile = h('input', { id: 'aws-profile', class: 'input', value: cur?.profile || '', placeholder: 'default (leave empty to use the server role)' });
-      const region = h('input', { id: 'aws-region', class: 'input', value: cur?.region || 'ap-south-1', placeholder: 'ap-south-1' });
-      const err = h('div', { class: 'hidden' });
-      const go = h('button', { class: 'btn-primary', type: 'button', onclick: async () => {
-        err.classList.add('hidden'); go.disabled = true; go.textContent = 'Testing…';
-        try { await put('/v1/integrations/aws', { enabled: true, profile: profile.value, region: region.value }); toast('Connected', 'ok'); close(); load(true); }
-        catch (e) { mount(err, errorBox(e.message)); err.classList.remove('hidden'); go.disabled = false; go.textContent = 'Test and save'; }
-      } }, 'Test and save');
-      return h('div', { class: 'space-y-4' }, field('Profile', profile, 'A profile from the server\'s AWS config. For SSO, run aws sso login --profile <name> on the server first.'), field('Region', region), err,
-        h('div', { class: 'flex justify-end gap-2' }, cur && h('button', { class: 'btn-ghost mr-auto text-rose-600', type: 'button', onclick: async () => { await put('/v1/integrations/aws', { enabled: false, profile: '', region: '' }); close(); load(true); } }, 'Disconnect'),
-          h('button', { class: 'btn-secondary', type: 'button', onclick: () => close() }, 'Cancel'), go));
+      const body = h('div', {});
+      const tabBtn = (id, label) => h('button', { type: 'button', id: 'aws-tab-' + id, class: 'rounded-lg px-3 py-1.5 text-sm font-medium', onclick: () => pick(id) }, label);
+      const tabs = { sso: tabBtn('sso', 'Sign in with AWS'), profile: tabBtn('profile', 'Server profile') };
+      let stopWizard = null;
+      function pick(which) {
+        if (stopWizard) { stopWizard(); stopWizard = null; }
+        for (const [k, el] of Object.entries(tabs)) el.className = 'rounded-lg px-3 py-1.5 text-sm font-medium ' + (k === which ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800');
+        if (which === 'sso') stopWizard = ssoWizard(body, { initialRegion: cur?.region, onDone: () => { close(); load(true); }, onCancel: () => close() });
+        else mount(body, profileForm());
+      }
+      function profileForm() {
+        const profile = h('input', { id: 'aws-profile', class: 'input', value: cur?.sso ? '' : cur?.profile || '', placeholder: 'default (leave empty to use the server role)' });
+        const region = h('input', { id: 'aws-region', class: 'input', value: cur?.region || 'ap-south-1', placeholder: 'ap-south-1' });
+        const err = h('div', { class: 'hidden' });
+        const go = h('button', { class: 'btn-primary', type: 'button', onclick: async () => {
+          err.classList.add('hidden'); go.disabled = true; go.textContent = 'Testing…';
+          try { await put('/v1/integrations/aws', { enabled: true, profile: profile.value, region: region.value }); toast('Connected', 'ok'); close(); load(true); }
+          catch (e) { mount(err, errorBox(e.message)); err.classList.remove('hidden'); go.disabled = false; go.textContent = 'Test and save'; }
+        } }, 'Test and save');
+        return h('div', { class: 'space-y-4' }, field('Profile', profile, 'A profile from the server\'s AWS config. For SSO, run aws sso login --profile <name> on the server first. On a server with an IAM role, leave it empty.'), field('Region', region), err,
+          h('div', { class: 'flex justify-end gap-2' }, cur && h('button', { class: 'btn-ghost mr-auto text-rose-600', type: 'button', onclick: async () => { await put('/v1/integrations/aws', { enabled: false, profile: '', region: '' }); close(); load(true); } }, 'Disconnect'),
+            h('button', { class: 'btn-secondary', type: 'button', onclick: () => close() }, 'Cancel'), go));
+      }
+      queueMicrotask(() => pick('sso'));
+      return h('div', { class: 'space-y-4' }, h('div', { class: 'flex gap-1', role: 'tablist' }, tabs.sso, tabs.profile), body);
     });
   }
 

@@ -62,6 +62,9 @@ type Config struct {
 	// Vault encrypts console secrets. Nil means a random key for this process only.
 	Vault  *vault.Vault
 	Logger *slog.Logger
+	// SSOBase replaces the AWS sign-in addresses with <base>/oidc and <base>/portal. It exists for
+	// development and tests against a stand-in, and must be a loopback address.
+	SSOBase string
 }
 
 // Server serves the API and runs queued pipelines.
@@ -96,6 +99,8 @@ type Server struct {
 	ghApp     ghAppRegistry // GitHub App setups waiting for GitHub
 	ghTokens  sync.Map      // "appID/installationID" -> *ghTokenCache
 	ghAppForm sync.Map      // state -> ghAppForm, what the launch page shows
+
+	sso ssoState // AWS SSO sign-ins in progress and the cached role credentials
 
 	assistLimiter rateLimiter // questions per person per minute
 	cloud         cloudState
