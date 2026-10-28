@@ -2,6 +2,7 @@ import { h, icon, mount, pageHeader, relTime, absTime, spinner, errorBox, notice
 import { get, put, post, del, atLeast } from '../lib/api.js';
 import { session } from '../app.js';
 import { assistantSettings } from './assistant_settings.js';
+import { githubAppCard } from './github_app.js';
 
 const OUTCOME = { ok: 'pill-ok', 'run started': 'pill-ok', accepted: 'pill-run', ignored: 'pill-idle', rejected: 'pill-bad', failed: 'pill-bad', busy: 'pill-wait' };
 
@@ -72,7 +73,7 @@ export async function integrationsPage() {
         field('Repositories and branches that may start runs', h('div', {}, rulesBox, admin && h('button', { class: 'btn-secondary btn-sm mt-2', type: 'button', onclick: () => { rules.push({ repo: '', branches: 'main' }); paintRules(); } }, icon('plus', 'size-3.5'), 'Add repository')),
           'Only these can trigger a run. Branch names may use * (it does not cross a /). Pull requests from forks are always ignored.'),
         h('div', { class: 'grid gap-5 md:grid-cols-2' },
-          field('Access token', token, 'A fine-grained token with Contents: read and Commit statuses: write on those repositories. It is stored encrypted and cannot be read back.'),
+          gh.app ? field('Access', h('div', { class: 'muted text-sm' }, 'Provided by the GitHub App.')) : field('Access token', token, 'A fine-grained token with Contents: read and Commit statuses: write on those repositories. It is stored encrypted and cannot be read back.'),
           field('Webhook secret', h('div', { class: 'space-y-2' }, secretMode, secretIn), 'GitHub signs every delivery with it; Forgeline refuses unsigned ones.')),
         h('div', { class: 'grid gap-5 md:grid-cols-2' },
           field('This server\'s public address', pub, 'Where GitHub reaches this server (over HTTPS). Used for the webhook URL and the links on commit statuses.'),
@@ -90,6 +91,7 @@ export async function integrationsPage() {
       gh.problem && h('div', { class: 'mb-4' }, errorBox(gh.problem)),
       gh.source === 'flags' && h('div', { class: 'mb-4' }, notice('warn', 'This is configured by ', h('code', { class: 'font-mono text-xs' }, '--github-allow'), ' and environment variables. Saving here replaces that configuration, and the flags are then ignored.')),
       !admin && h('div', { class: 'mb-4' }, notice('info', 'Only administrators can change integrations.')),
+      admin && gh.source !== 'flags' && (gh.app || !gh.token_set) && githubAppCard(gh, load),
       h('div', { class: 'grid gap-4 xl:grid-cols-3' },
         h('div', { class: 'xl:col-span-2' }, form),
         h('div', { class: 'space-y-4' },

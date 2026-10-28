@@ -24,6 +24,14 @@ file to start over.
 python3 scripts/dev/fake-github.py 9911 /tmp/statuses.log
 ```
 
+It also plays GitHub's side of **Connect with a GitHub App**: it serves the approval page, hands back
+an app id, a webhook secret (`demo-webhook-secret-from-fake-github-0123`) and a private key, lists one
+installation (`acme`, repository `acme/shop`) and issues installation tokens; each status it logs
+says whether it was posted with `installation-token` or `personal-token`. In the console set the
+GitHub API address in the *Connect with a GitHub App* card to `http://127.0.0.1:9911`, click
+*Create the GitHub App*, then *Continue to GitHub* and *Create GitHub App*. It checks the app token's
+shape and expiry but not its signature (the Go tests do).
+
 It accepts the token `ghp_demo_token_value_1234`, knows one repository (`acme/shop`) whose commit
 holds a small `forgeline.yaml`, and appends every commit status it receives to the log. In the
 console set the API address to `http://127.0.0.1:9911` (plain http is allowed only for loopback),
