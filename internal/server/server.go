@@ -102,8 +102,9 @@ type Server struct {
 
 	sso ssoState // AWS SSO sign-ins in progress and the cached role credentials
 
-	assistLimiter rateLimiter // questions per person per minute
-	cloud         cloudState
+	assistLimiter  rateLimiter // questions per person per minute
+	actionsLimiter rateLimiter // GitHub Actions writes per person per minute
+	cloud          cloudState
 
 	ghCfg        atomic.Pointer[GitHubConfig] // the active GitHub settings; nil means off
 	ghSource     atomic.Value                 // "flags" or "console"

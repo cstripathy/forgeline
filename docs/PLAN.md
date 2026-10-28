@@ -23,6 +23,7 @@ Open this repository in Claude Code and paste:
   GitHub webhook with commit statuses, a demo deployment on AWS (see `deploy/aws/README.md`).
 - M3 slice 1 (network permission, no-new-privileges) and slice 2 (secrets scoped to steps, private
   env file, masking, never cached). Slices 3 to 5 are not built (see Next steps).
+- GitHub Actions page (design note 011, slice 1): list workflows and runs, start, cancel, re-run, read logs, limited to the GitHub allow list and its branches. Go tests and a browser walk-through against `scripts/dev/fake-github.py`. Needs the Actions permission on the GitHub App before it works on real GitHub. Slices 2 (a step that triggers a workflow) and 3 (JIT self-hosted runners, with the credential rules in the note) are designed, not built.
 - Agent steps (design note 007): `agent:` with provider `claude-code`, read-only tools by default, credential from the vault. Built and run on real Docker with a real `setup-token` login. Console runs have no source checkout yet, so the agent sees an empty workspace.
 - The assistant (design note 008): a read-only helper in the console's top bar. Verified in a browser with the local `claude`; the API-key backend only against a stand-in.
 - AWS sign-in from the console (design note 009): IAM Identity Center device login, account and role chosen in the UI. Verified against `scripts/dev/fake-sso.py`; the real AWS accepted the registration and device-code steps, **the approval, token, account, role and credential steps were not run against real AWS**.
@@ -33,9 +34,8 @@ Open this repository in Claude Code and paste:
   log. Tailwind from the standalone CLI. Pictures: `docs/console/README.md`.
 
 **Built but only verified against stand-ins** (so say so, and do not claim more)
-- A cloud change *executed* against a real AWS account. Previews and a rejection were done on a
-  real account; execution was exercised only against `scripts/dev/fake-aws` and Go fakes.
-- The GitHub integration against the real GitHub API. It ran against `scripts/dev/fake-github.py`.
+- Real webhook deliveries and commit statuses on GitHub (the App was created and read from real GitHub on 2026-10-28; a cloud change was executed on real AWS the same day).
+- GitHub Actions on real GitHub: the App needs the Actions permission first.
 - Session cookies over HTTPS behind a proxy (the `Secure` flag is unit tested, not browser tested).
 - Teardown of the demo stack (`deploy/aws/README.md`) has never been run.
 - Two server processes on one database (the last-administrator rule, the pipeline edit lock and

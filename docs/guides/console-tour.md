@@ -30,6 +30,11 @@ Names, where each is stored and which pipelines use it. Values are write-only: n
 
 ![Secrets]({{ '/console/10-secrets-list.png' | relative_url }})
 
+## Actions
+Start, watch and re-run GitHub Actions workflows of your allowed repositories. See [GitHub Actions]({{ '/guides/github-actions/' | relative_url }}).
+
+![Actions]({{ '/console/34-actions-runs.png' | relative_url }})
+
 ## Infrastructure
 Three tabs: **Platform** (the Forgeline server, Docker host and running steps), **AWS account** (identity, stacks, instances, spend) and **Cloud changes** (proposals and approvals). See [Connect AWS]({{ '/guides/connect-aws/' | relative_url }}).
 

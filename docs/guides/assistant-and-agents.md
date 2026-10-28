@@ -1,7 +1,7 @@
 ---
 title: Assistant and agents
 parent: Guides
-nav_order: 5
+nav_order: 6
 ---
 
 # Assistant and agents
