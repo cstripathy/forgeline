@@ -102,6 +102,7 @@ type Server struct {
 	wf       wfEngine
 	guard    guardEngine
 	k8s      k8sEngine
+	envs     envEngine
 
 	ghApp     ghAppRegistry // GitHub App setups waiting for GitHub
 	ghTokens  sync.Map      // "appID/installationID" -> *ghTokenCache

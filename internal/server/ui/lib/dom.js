@@ -131,6 +131,7 @@ const STATUS_PILL = {
   queued: ['pill-wait', 'Queued'], pending: ['pill-wait', 'Pending'], proposed: ['pill-wait', 'Awaiting approval'],
   applying: ['pill-run', 'Applying'], applied: ['pill-ok', 'Applied'], cancelled: ['pill-idle', 'Withdrawn'],
   canceled: ['pill-idle', 'Canceled'], skipped: ['pill-idle', 'Skipped'], expired: ['pill-idle', 'Expired'],
+  requested: ['pill-wait', 'Requested'], provisioning: ['pill-run', 'Creating'], active: ['pill-ok', 'Active'], destroying: ['pill-run', 'Deleting'], destroyed: ['pill-idle', 'Deleted'],
 };
 
 export function pill(status, label) {

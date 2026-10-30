@@ -102,3 +102,15 @@ sudo systemctl restart forgeline
 The value stays on the instance's disk in that file (mode 0600 is worth checking), so this is
 fine for a throwaway demo and not a secret store. Runs started by a GitHub webhook receive no
 secrets yet. See `docs/design/002-spec-extensions.md` for the rules.
+
+## Environment templates
+
+`dev-box.yaml` (a private EC2 instance with an encrypted disk, IMDSv2 required, no inbound ports,
+reachable through Session Manager) and `qa-sandbox.yaml` (an on-demand DynamoDB table and an encrypted
+SQS queue) are what the console's **Environments** page deploys. They are created for a person for a
+limited time: the `Owner` and `ExpiresAt` parameters are recorded as tags, and Forgeline deletes the
+stack when the time is up. Check them any time without creating anything:
+
+```sh
+aws cloudformation validate-template --template-body file://deploy/aws/dev-box.yaml
+```

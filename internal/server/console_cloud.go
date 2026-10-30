@@ -223,23 +223,45 @@ type proposeRequest struct {
 	Action     string            `json:"action"`
 }
 
+// httpErr is a refusal with the status the HTTP handler should answer.
+type httpErr struct {
+	status int
+	msg    string
+}
+
+func (e *httpErr) Error() string { return e.msg }
+
+func refusal(status int, msg string) *httpErr { return &httpErr{status, msg} }
+
 func (s *Server) handlePropose(w http.ResponseWriter, r *http.Request) {
 	var req proposeRequest
 	if !readJSON(w, r, &req) {
 		return
 	}
 	ctx := r.Context()
+	c, herr := s.proposeChange(ctx, principalFrom(ctx), clientIP(r), req)
+	if herr != nil {
+		if herr.status >= 500 {
+			s.internalError(w, "saving the proposal", errors.New(herr.msg))
+			return
+		}
+		writeError(w, herr.status, herr.msg)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, c)
+}
+
+// proposeChange records a change and prepares its preview in the background. The environment engine
+// calls it too, as a person or as a named policy; nothing about approval is decided here.
+func (s *Server) proposeChange(ctx context.Context, p Principal, ip string, req proposeRequest) (CloudChange, *httpErr) {
 	st := s.loadAWS(ctx)
 	if !st.Enabled {
-		writeError(w, http.StatusConflict, "connect an AWS account first (Infrastructure → AWS)")
-		return
+		return CloudChange{}, refusal(http.StatusConflict, "connect an AWS account first (Infrastructure → AWS)")
 	}
 	req.Reason = strings.TrimSpace(req.Reason)
 	if len(req.Reason) < 5 || len(req.Reason) > 500 {
-		writeError(w, http.StatusBadRequest, "say why in 5 to 500 characters; the approver reads it")
-		return
+		return CloudChange{}, refusal(http.StatusBadRequest, "say why in 5 to 500 characters; the approver reads it")
 	}
-	p := principalFrom(ctx)
 	c := CloudChange{ID: authn.NewID(), Kind: req.Kind, Status: stPreparing, Reason: req.Reason, Preview: []ChangePreview{},
 		Profile: st.Profile, Region: st.Region, ProposedBy: p.Name, ProposedAt: time.Now().UTC()}
 
@@ -248,21 +270,18 @@ func (s *Server) handlePropose(w http.ResponseWriter, r *http.Request) {
 	case kindStackDeploy:
 		tpl, ok := findTemplate(req.Template)
 		if !ok {
-			writeError(w, http.StatusBadRequest, "unknown template")
-			return
+			return CloudChange{}, refusal(http.StatusBadRequest, "unknown template")
 		}
 		stack := req.Stack
 		if stack == "" {
 			stack = tpl.DefaultStack
 		}
 		if !stackNameRE.MatchString(stack) {
-			writeError(w, http.StatusBadRequest, "the stack name is letters, digits and hyphens, starting with a letter")
-			return
+			return CloudChange{}, refusal(http.StatusBadRequest, "the stack name is letters, digits and hyphens, starting with a letter")
 		}
 		params, err := checkParams(tpl, req.Params)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
+			return CloudChange{}, refusal(http.StatusBadRequest, err.Error())
 		}
 		c.Stack, c.Params, c.Title = stack, params, fmt.Sprintf("Deploy %s as stack %s", tpl.Title, stack)
 		prepare = func(ctx context.Context, c *CloudChange, st awsSettings) error {
@@ -270,48 +289,41 @@ func (s *Server) handlePropose(w http.ResponseWriter, r *http.Request) {
 		}
 	case kindStackDelete:
 		if !stackNameRE.MatchString(req.Stack) {
-			writeError(w, http.StatusBadRequest, "give the stack name")
-			return
+			return CloudChange{}, refusal(http.StatusBadRequest, "give the stack name")
 		}
 		if protectedStack(req.Stack) {
-			s.auditReq(r, "cloud.propose", "stack/"+req.Stack, "refused: protected stack", false)
-			writeError(w, http.StatusForbidden, "this stack holds Forgeline-unrelated bootstrap resources and cannot be deleted from the console")
-			return
+			_ = s.audit(ctx, p, ip, "cloud.propose", "stack/"+req.Stack, "refused: protected stack", false)
+			return CloudChange{}, refusal(http.StatusForbidden, "this stack holds Forgeline-unrelated bootstrap resources and cannot be deleted from the console")
 		}
 		c.Stack, c.Title = req.Stack, "Delete stack "+req.Stack
 		prepare = s.prepareDelete
 	case kindInstanceAction:
 		if !instanceIDRE.MatchString(req.InstanceID) {
-			writeError(w, http.StatusBadRequest, "give an instance id such as i-0123456789abcdef0")
-			return
+			return CloudChange{}, refusal(http.StatusBadRequest, "give an instance id such as i-0123456789abcdef0")
 		}
 		if req.Action != "start" && req.Action != "stop" && req.Action != "reboot" {
-			writeError(w, http.StatusBadRequest, "action must be start, stop or reboot")
-			return
+			return CloudChange{}, refusal(http.StatusBadRequest, "action must be start, stop or reboot")
 		}
 		c.InstanceID, c.Action, c.Title = req.InstanceID, req.Action, fmt.Sprintf("%s instance %s", strings.ToUpper(req.Action[:1])+req.Action[1:], req.InstanceID)
 		prepare = s.prepareInstance
 	default:
-		writeError(w, http.StatusBadRequest, "kind must be stack-deploy, stack-delete or instance-action")
-		return
+		return CloudChange{}, refusal(http.StatusBadRequest, "kind must be stack-deploy, stack-delete or instance-action")
 	}
 
 	// Bind the change to the account it was prepared against.
 	idOut, err := s.aws(ctx, st, "sts", "get-caller-identity")
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
+		return CloudChange{}, refusal(http.StatusBadGateway, err.Error())
 	}
 	var id struct{ Account string }
 	json.Unmarshal(idOut, &id)
 	c.Account = id.Account
 
 	if err := s.docs.Create(ctx, kindCloud, c.ID, c); err != nil {
-		s.internalError(w, "saving the proposal", err)
-		return
+		return CloudChange{}, refusal(http.StatusInternalServerError, err.Error())
 	}
-	s.auditReq(r, "cloud.propose", c.target(), c.Title+" — "+c.Reason, true)
-	// The worker owns its own copy; the response below is what was saved, not what it will become.
+	_ = s.audit(ctx, p, ip, "cloud.propose", c.target(), c.Title+" — "+c.Reason, true)
+	// The worker owns its own copy; the response is what was saved, not what it will become.
 	work := c
 	s.wg.Add(1)
 	go func() {
@@ -329,7 +341,7 @@ func (s *Server) handlePropose(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("saving a prepared proposal", "id", work.ID, "err", err)
 		}
 	}()
-	writeJSON(w, http.StatusAccepted, c)
+	return c, nil
 }
 
 func findTemplate(id string) (CatalogTemplate, bool) {
@@ -589,77 +601,82 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	p := principalFrom(ctx)
-	s.cloud.mu.Lock()
-	c, err := s.loadChange(ctx, r.PathValue("id"))
-	if errors.Is(err, docstore.ErrNotFound) {
-		s.cloud.mu.Unlock()
-		writeError(w, http.StatusNotFound, "no such change")
-		return
-	} else if err != nil {
-		s.cloud.mu.Unlock()
-		s.internalError(w, "reading the change", err)
+	c, herr := s.approveChange(ctx, r.PathValue("id"), principalFrom(ctx), clientIP(r), req.Note, false)
+	if herr != nil {
+		if herr.status >= 500 {
+			s.internalError(w, "approving the change", errors.New(herr.msg))
+			return
+		}
+		writeError(w, herr.status, herr.msg)
 		return
 	}
-	refuse := func(status int, msg string) {
+	writeJSON(w, http.StatusAccepted, c)
+}
+
+// approveChange checks a proposed change is still safe to run and starts it. A person may not approve
+// their own proposal. policy is true only for the environment engine acting under a rule an
+// administrator set (self-service, expiry), which is the one case where the proposer is not a person.
+func (s *Server) approveChange(ctx context.Context, id string, p Principal, ip, note string, policy bool) (CloudChange, *httpErr) {
+	s.cloud.mu.Lock()
+	c, err := s.loadChange(ctx, id)
+	if errors.Is(err, docstore.ErrNotFound) {
 		s.cloud.mu.Unlock()
-		s.auditReq(r, "cloud.approve", c.target(), "refused: "+msg, false)
-		writeError(w, status, msg)
+		return CloudChange{}, refusal(http.StatusNotFound, "no such change")
+	} else if err != nil {
+		s.cloud.mu.Unlock()
+		return CloudChange{}, refusal(http.StatusInternalServerError, err.Error())
+	}
+	refuse := func(status int, msg string) (CloudChange, *httpErr) {
+		s.cloud.mu.Unlock()
+		_ = s.audit(ctx, p, ip, "cloud.approve", c.target(), "refused: "+msg, false)
+		return CloudChange{}, refusal(status, msg)
 	}
 	switch {
 	case c.Status == stExpired:
-		refuse(http.StatusConflict, "this proposal is older than 24 hours; propose it again so the preview is current")
-		return
+		return refuse(http.StatusConflict, "this proposal is older than 24 hours; propose it again so the preview is current")
 	case c.Status != stProposed:
-		refuse(http.StatusConflict, "this change is "+c.Status+", not waiting for approval")
-		return
-	case c.ProposedBy == p.Name:
-		refuse(http.StatusForbidden, "you proposed this change; someone else must approve it")
-		return
+		return refuse(http.StatusConflict, "this change is "+c.Status+", not waiting for approval")
+	case c.ProposedBy == p.Name && !policy:
+		return refuse(http.StatusForbidden, "you proposed this change; someone else must approve it")
 	}
 	if s.cloud.busy == nil {
 		s.cloud.busy = map[string]string{}
 	}
 	if other, ok := s.cloud.busy[c.target()]; ok {
-		refuse(http.StatusConflict, "another change ("+other+") is already running against "+c.target())
-		return
+		return refuse(http.StatusConflict, "another change ("+other+") is already running against "+c.target())
 	}
 	st := s.loadAWS(ctx)
 	if !st.Enabled || st.Profile != c.Profile || st.Region != c.Region {
-		refuse(http.StatusConflict, "the AWS connection changed since this was proposed; propose it again")
-		return
+		return refuse(http.StatusConflict, "the AWS connection changed since this was proposed; propose it again")
 	}
 	// The account must still be the one the preview was made against.
 	idOut, err := s.aws(ctx, st, "sts", "get-caller-identity")
 	if err != nil {
 		s.cloud.mu.Unlock()
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
+		return CloudChange{}, refusal(http.StatusBadGateway, err.Error())
 	}
-	var id struct{ Account string }
-	json.Unmarshal(idOut, &id)
-	if id.Account != c.Account {
-		refuse(http.StatusConflict, fmt.Sprintf("the server is now in AWS account %s, but this was prepared for %s", id.Account, c.Account))
-		return
+	var acct struct{ Account string }
+	json.Unmarshal(idOut, &acct)
+	if acct.Account != c.Account {
+		return refuse(http.StatusConflict, fmt.Sprintf("the server is now in AWS account %s, but this was prepared for %s", acct.Account, c.Account))
 	}
 
 	now := time.Now().UTC()
-	c.Status, c.DecidedBy, c.DecidedAt, c.DecisionNote = stExecuting, p.Name, &now, strings.TrimSpace(req.Note)
+	c.Status, c.DecidedBy, c.DecidedAt, c.DecisionNote = stExecuting, p.Name, &now, strings.TrimSpace(note)
 	if err := s.docs.Put(ctx, kindCloud, c.ID, c); err != nil {
 		s.cloud.mu.Unlock()
-		s.internalError(w, "saving the decision", err)
-		return
+		return CloudChange{}, refusal(http.StatusInternalServerError, err.Error())
 	}
 	s.cloud.busy[c.target()] = c.ID
 	s.cloud.mu.Unlock()
-	s.auditReq(r, "cloud.approve", c.target(), c.Title+" — approved, executing", true)
+	_ = s.audit(ctx, p, ip, "cloud.approve", c.target(), c.Title+" — approved, executing", true)
 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		s.executeChange(context.WithoutCancel(ctx), c, st)
 	}()
-	writeJSON(w, http.StatusAccepted, c)
+	return c, nil
 }
 
 func (s *Server) handleReject(w http.ResponseWriter, r *http.Request) {

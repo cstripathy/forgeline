@@ -35,6 +35,8 @@ type fakeCLI struct {
 	tagsSeen   []string
 	costCalls  int
 	dockerErr  string
+	noVPC      bool // the account has no default VPC
+	failCreate bool // new stacks roll back instead of completing
 }
 
 func newFakeCLI() *fakeCLI {
@@ -105,6 +107,9 @@ func (f *fakeCLI) run(_ context.Context, name string, args ...string) ([]byte, s
 					switch status {
 					case "CREATE_IN_PROGRESS":
 						f.stacks[stack] = "CREATE_COMPLETE"
+						if f.failCreate {
+							f.stacks[stack] = "ROLLBACK_COMPLETE"
+						}
 					case "UPDATE_IN_PROGRESS":
 						f.stacks[stack] = "UPDATE_COMPLETE"
 					case "DELETE_IN_PROGRESS":
@@ -127,7 +132,7 @@ func (f *fakeCLI) run(_ context.Context, name string, args ...string) ([]byte, s
 		b, _ := os.ReadFile(strings.TrimPrefix(arg(a, "--parameters"), "file://"))
 		f.paramsSeen = string(b)
 		tpl, _ := os.ReadFile(strings.TrimPrefix(arg(a, "--template-body"), "file://"))
-		if string(tpl) != awsdeploy.DemoTemplate {
+		if string(tpl) != awsdeploy.DemoTemplate && string(tpl) != awsdeploy.DevBoxTemplate && string(tpl) != awsdeploy.QASandboxTemplate {
 			return nil, "template differs", errors.New("exit 1")
 		}
 		for i, x := range a {
@@ -179,6 +184,13 @@ func (f *fakeCLI) run(_ context.Context, name string, args ...string) ([]byte, s
 			f.stackSeen[stack] = 0
 		}
 		return js(map[string]string{})
+	case "ec2 describe-vpcs":
+		if f.noVPC {
+			return js(map[string]any{"Vpcs": []map[string]string{}})
+		}
+		return js(map[string]any{"Vpcs": []map[string]string{{"VpcId": "vpc-0def0def0def0def0"}}})
+	case "ec2 describe-subnets":
+		return js(map[string]any{"Subnets": []map[string]string{{"SubnetId": "subnet-0bbb0bbb0bbb0bbb0"}, {"SubnetId": "subnet-0aaa0aaa0aaa0aaa0"}}})
 	case "cloudformation list-stack-resources":
 		return js(map[string]any{"StackResourceSummaries": []map[string]string{
 			{"LogicalResourceId": "Instance", "ResourceType": "AWS::EC2::Instance", "PhysicalResourceId": "i-0aaa1111bbbb2222c"}}})
@@ -730,29 +742,32 @@ func TestInterruptedChangesAreMarkedFailedOnRestart(t *testing.T) {
 	}
 }
 
-func TestCatalogMatchesTheEmbeddedTemplate(t *testing.T) {
+func TestCatalogMatchesTheEmbeddedTemplates(t *testing.T) {
 	// Every template parameter must be in the catalog (so the form can set it), and the catalog
 	// must not offer parameters the template does not have (AWS would reject the change).
-	block := awsdeploy.DemoTemplate[strings.Index(awsdeploy.DemoTemplate, "\nParameters:")+1:]
-	block = block[:strings.Index(block, "\nResources:")]
-	re := regexp.MustCompile(`(?m)^  ([A-Za-z0-9]+):\s*$`)
-	inTemplate := map[string]bool{}
-	for _, m := range re.FindAllStringSubmatch(block, -1) {
-		inTemplate[m[1]] = true
-	}
-	// AmiId is resolved by AWS from SSM and is deliberately not exposed.
-	inCatalog := map[string]bool{"AmiId": true}
-	for _, p := range demoTemplate.Parameters {
-		inCatalog[p.Name] = true
-	}
-	for name := range inTemplate {
-		if !inCatalog[name] {
-			t.Errorf("template parameter %s is not in the catalog", name)
+	for _, tpl := range catalog {
+		body := tpl.body
+		block := body[strings.Index(body, "\nParameters:")+1:]
+		block = block[:strings.Index(block, "\nResources:")]
+		re := regexp.MustCompile(`(?m)^  ([A-Za-z0-9]+):\s*$`)
+		inTemplate := map[string]bool{}
+		for _, m := range re.FindAllStringSubmatch(block, -1) {
+			inTemplate[m[1]] = true
 		}
-	}
-	for name := range inCatalog {
-		if !inTemplate[name] {
-			t.Errorf("catalog parameter %s is not in the template", name)
+		// AmiId is resolved by AWS from SSM and is deliberately not exposed.
+		inCatalog := map[string]bool{"AmiId": true}
+		for _, p := range tpl.Parameters {
+			inCatalog[p.Name] = true
+		}
+		for name := range inTemplate {
+			if !inCatalog[name] {
+				t.Errorf("%s: template parameter %s is not in the catalog", tpl.ID, name)
+			}
+		}
+		for name := range inCatalog {
+			if !inTemplate[name] && name != "AmiId" {
+				t.Errorf("%s: catalog parameter %s is not in the template", tpl.ID, name)
+			}
 		}
 	}
 	_ = fmt.Sprint

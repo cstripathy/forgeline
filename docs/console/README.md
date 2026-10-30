@@ -132,3 +132,22 @@ The assistant, agents and workflows can use `k8s_clusters` and `k8s_resources`.
 
 ![Guard findings for the cluster](50-kubernetes-guard.png)
 
+### Environments
+
+Environments → New environment. Choose a **developer box** (a small private EC2 instance with an
+encrypted disk and no inbound ports; connect with Session Manager) or a **QA sandbox** (a DynamoDB
+table and an encrypted queue), say what it is for and how long to keep it. Before you submit, the form
+shows the cost for that time and whether it **starts at once** or **waits for an administrator**.
+Waiting ones are approved as any cloud change is (Infrastructure → Cloud changes, where the preview
+lists what would be created, and a different administrator approves it). The clock starts when it is
+ready. When time is up Forgeline deletes the stack; the owner or an administrator can extend it
+(up to the longest life the policy allows) or delete it early; a creation that fails is cleaned up.
+
+Administrators set the **self-service policy**: which templates, how long, how costly, and how many per
+person. Inside it, requests start in the name of the policy without a second person, and each step is
+in the audit log. It is off until an administrator turns it on.
+
+![Environments with one waiting for nobody and one deleted](51-environments.png)
+
+![The request form pricing a request against the policy](52-environment-request.png)
+

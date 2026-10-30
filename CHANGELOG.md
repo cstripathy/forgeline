@@ -7,6 +7,13 @@ section in the pull request that makes the change; a release moves it under its 
 ## [Unreleased]
 
 ### Added
+- **Environments.** Temporary infrastructure and developer boxes from catalog templates (a developer
+  box and a QA sandbox): each has an owner, a purpose, a time limit and a cost estimate, shown before
+  you ask. Approval is the same four-eyes cloud change as ever, unless an administrator turns on a
+  self-service policy for chosen templates within a time and cost limit; then those start on their own
+  in the name of the policy and are audited. Forgeline deletes an environment when its time is up,
+  cleans up a failed creation, and lets an owner extend (within a lifetime limit) or delete early. A
+  person can have only so many at once. (note 017)
 - **Kubernetes (read-only).** Register clusters (EKS through a connected AWS account, nothing stored;
   or any cluster with a service-account token kept in the vault), explore nodes, deployments,
   StatefulSets, DaemonSets, pods, services, namespaces and warning events, and let Guard check them:

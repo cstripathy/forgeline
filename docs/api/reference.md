@@ -106,6 +106,15 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | `GET /v1/ai/workflow-runs/{id}` | developer | One run with each step's output. |
 | `POST /v1/ai/workflow-runs/{id}/release` | admin | Let a run waiting at a gate start its next stage. |
 | `POST /v1/ai/workflow-runs/{id}/cancel` | developer | Cancel a run (its starter, or an administrator). |
+| `GET /v1/envs` | developer | Environments (temporary stacks) with owner, status, expiry and cost estimate. |
+| `GET /v1/envs/templates` | developer | The environment templates (developer box, QA sandbox) with the options a person can set. |
+| `GET /v1/envs/policy` | developer | The self-service policy. |
+| `PUT /v1/envs/policy` | admin | Set the self-service policy: templates, time and cost limits, environments per person. |
+| `POST /v1/envs/estimate` | developer | The cost of a request and whether the policy lets it start without approval. |
+| `POST /v1/envs` | developer | Ask for an environment. Within the self-service policy it starts at once; otherwise an administrator approves the change as for any cloud change. |
+| `GET /v1/envs/{id}` | developer | One environment. |
+| `POST /v1/envs/{id}/extend` | developer | Extend it (its owner or an administrator), up to the longest life the policy allows. |
+| `POST /v1/envs/{id}/destroy` | developer | Delete it now (its owner or an administrator). |
 | `GET /v1/k8s/clusters` | viewer | Registered Kubernetes clusters (never their tokens). |
 | `POST /v1/k8s/clusters` | admin | Register a cluster (`eks` through a connected AWS account, or `token`); proves it with a read before saving. |
 | `DELETE /v1/k8s/clusters/{id}` | admin | Remove a cluster and its stored token. Changes nothing in the cluster. |

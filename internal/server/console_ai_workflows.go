@@ -830,6 +830,7 @@ func (s *Server) startWorkflows(ctx context.Context) {
 		}
 	}
 	s.failInterruptedScans(ctx)
+	s.startEnvs(ctx)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()

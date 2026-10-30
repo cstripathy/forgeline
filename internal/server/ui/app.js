@@ -13,6 +13,7 @@ import { agentsPage, agentPage, skillPage } from './pages/agents.js';
 import { workflowPage, workflowRunPage } from './pages/workflows.js';
 import { guardPage } from './pages/guard.js';
 import { kubernetesPage } from './pages/kubernetes.js';
+import { environmentsPage } from './pages/environments.js';
 import { infraPage } from './pages/infra.js';
 import { integrationsPage } from './pages/integrations.js';
 import { secretsPage } from './pages/secrets.js';
@@ -29,6 +30,7 @@ const NAV = [
   { path: '/pipelines', label: 'Pipelines', icon: 'flow', min: 'viewer', also: ['/pipelines/', '/runs/'] },
   { path: '/actions', label: 'Actions', icon: 'bolt', min: 'developer' },
   { path: '/infrastructure', label: 'Infrastructure', icon: 'server', min: 'viewer' },
+  { path: '/environments', label: 'Environments', icon: 'clock', min: 'developer' },
   { path: '/kubernetes', label: 'Kubernetes', icon: 'box', min: 'viewer', also: ['/kubernetes/'] },
   { path: '/guard', label: 'Guard', icon: 'shield', min: 'viewer' },
   { path: '/agents', label: 'Agents', icon: 'sparkle', min: 'developer', also: ['/agents/', '/skills/', '/workflows/', '/workflow-runs/'] },
@@ -145,6 +147,7 @@ async function boot() {
     route('/pipelines/:id', guard('viewer', pipelineEditorPage));
     route('/runs/:id', guard('viewer', runPage));
     route('/actions', guard('developer', actionsPage));
+    route('/environments', guard('developer', environmentsPage));
     route('/kubernetes', guard('viewer', kubernetesPage));
     route('/kubernetes/:id', guard('viewer', kubernetesPage));
     route('/guard', guard('viewer', guardPage));
