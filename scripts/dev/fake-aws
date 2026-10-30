@@ -111,4 +111,31 @@ if key == "ce get-cost-and-usage":
     out({"ResultsByTime": [{"Groups": [{"Keys": [k], "Metrics": {"UnblendedCost": {"Amount": v, "Unit": "USD"}}} for k, v in
         [("Amazon Elastic Compute Cloud - Compute", "9.62"), ("EC2 - Other", "1.84"), ("Amazon Virtual Private Cloud", "3.65"), ("AWS Key Management Service", "0.50")]]}]})
 
+ECS_REGION = "ap-south-1"
+CLUSTER = {"clusterName": "payments", "clusterArn": "arn:aws:ecs:%s:%s:cluster/payments" % (ECS_REGION, ACCOUNT), "status": "ACTIVE",
+           "runningTasksCount": 4, "pendingTasksCount": 0, "activeServicesCount": 2, "registeredContainerInstancesCount": 0}
+SERVICES = [
+    {"serviceName": "web", "status": "ACTIVE", "desiredCount": 3, "runningCount": 3, "launchType": "FARGATE",
+     "deploymentController": {"type": "ECS"}, "deploymentConfiguration": {"strategy": "ROLLING", "maximumPercent": 200, "minimumHealthyPercent": 100},
+     "loadBalancers": [{"targetGroupArn": "arn:aws:elasticloadbalancing:%s:%s:targetgroup/web/abc" % (ECS_REGION, ACCOUNT), "containerName": "web", "containerPort": 8080}]},
+    {"serviceName": "worker", "status": "ACTIVE", "desiredCount": 1, "runningCount": 1, "launchType": "FARGATE",
+     "deploymentController": {"type": "ECS"}, "deploymentConfiguration": {"strategy": "ROLLING", "maximumPercent": 200, "minimumHealthyPercent": 100}, "loadBalancers": []}]
+
+if key == "ecs list-clusters":
+    out({"clusterArns": [CLUSTER["clusterArn"]]})
+
+if key == "ecs describe-clusters":
+    out({"clusters": [CLUSTER], "failures": []})
+
+if key == "ecs list-services":
+    out({"serviceArns": ["arn:aws:ecs:%s:%s:service/payments/%s" % (ECS_REGION, ACCOUNT, x["serviceName"]) for x in SERVICES]})
+
+if key == "ecs describe-services":
+    out({"services": SERVICES, "failures": []})
+
+if key == "ec2 describe-security-groups":
+    out({"SecurityGroups": [{"GroupId": "sg-0web", "GroupName": "payments-web", "Description": "web tier", "IpPermissions": [
+        {"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]},
+        {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]}]})
+
 err("fake-aws: unsupported call: " + key)

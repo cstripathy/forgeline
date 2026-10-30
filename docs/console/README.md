@@ -35,3 +35,10 @@ approve and a second administrator rejected, so nothing in that account changed.
 | [36-actions-dispatch](36-actions-dispatch.png) | Starting a workflow: only branches allowed for the repository, optional inputs |
 | [37-workflow-step-builder](37-workflow-step-builder.png) | Adding a GitHub Actions workflow step from the form |
 | [38-workflow-step-run](38-workflow-step-run.png) | A run with a container step followed by a workflow step, its log showing GitHub's progress. A stand-in GitHub served the calls |
+
+## Assistant looking at an ECS cluster (call_aws)
+
+![The assistant listing an ECS cluster's services and judging canary fit](39-assistant-call-aws.png)
+
+Three read-only `call_aws` lookups (clusters, services, service details) against the AWS stand-in
+`scripts/dev/fake-aws`, answered by the real `claude`. Design note 015.

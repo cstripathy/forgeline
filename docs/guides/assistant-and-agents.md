@@ -12,7 +12,7 @@ Two different things that both use Claude.
 | --- | --- | --- |
 | What | A panel in the console you ask questions | A step in a pipeline |
 | Can do | **Read only.** Explain a failed run, review a pipeline, answer questions about the page, draft a pipeline into the editor (never saved for you) | Whatever tools the pipeline author lists. Read-only by default |
-| Runs | On the server, with no tools | Inside the step's container |
+| Runs | On the server, with no tools of its own; it can ask the server for read-only lookups | Inside the step's container |
 
 ## The assistant
 
