@@ -1,6 +1,6 @@
 # 017: accounts, agents, workflows, environments, guard, marketplace
 
-Status: slice 1 built (this note); the rest planned. Builds on 013 (AI use cases), 014 (missions
+Status: slices 1 (accounts) and 2 (skills and agents, with versions) built; the rest planned. Builds on 013 (AI use cases), 014 (missions
 and autonomy tiers), 015 and 016 (AWS access and the AWS MCP Server).
 
 ## The one rule everything keeps
@@ -15,7 +15,7 @@ propose. None of them gets a new way to write. This is what lets us hand people 
 | # | Slice | What a user gets | Depends on |
 |---|-------|------------------|------------|
 | 1 | **Multiple AWS accounts** (built) | Register accounts by profile, switch between them in the console, explorer and spend per account, the assistant can read any of them | none |
-| 2 | **Skills and agents** | A skill is a named, versioned procedure (markdown steps plus the read tools it may use). An agent is instructions plus skills plus a tool allowlist and an autonomy tier. The assistant can hand a task to an agent, and a person can talk to an agent directly | 1 |
+| 2 | **Skills and agents** (built) | A skill is a named, versioned procedure (markdown steps plus the read tools it may use). An agent is instructions plus skills plus a tool allowlist and an autonomy tier. The assistant can hand a task to an agent, and a person can talk to an agent directly | 1 |
 | 3 | **Workflows** | Agents and steps in order or in parallel, with approval gates, started by hand, on a schedule, or when a run fails. Output is a report or proposals | 2 |
 | 4 | **Guard** | Scheduled read-only security reviews per account (public buckets, open security groups, unencrypted volumes, idle resources, stale users), findings with severity and history, exceptions with an expiry, a pipeline guard (unpinned actions, secrets in logs) | 1, 3 |
 | 5 | **Kubernetes** | Register clusters (kubeconfig or EKS), explorer for namespaces, workloads, pods and events, change proposals as a server-side dry-run diff, same approval | 1 |
@@ -35,6 +35,14 @@ propose. None of them gets a new way to write. This is what lets us hand people 
 - Changes against an added account are not offered. The console says so and the proposal tools
   keep their target binding to the primary account. Slice 8 lifts this.
 - Only administrators add or remove an account. Removing one changes nothing in AWS.
+
+## Slice 2: what was built
+
+Skills and agents are append-only lists of immutable versions (fingerprint, author, note). An agent
+version pins exact skill versions and holds a tool allowlist and a tier; running it narrows the
+assistant (its prompt gets the instructions and skills, its lookups are cut to the allowlist) and
+never widens it. Rollback copies forward. `ask_agent` lets the assistant delegate one level deep.
+See `docs/guides/versioning.md` for the rules. The sketch below is the shape it started from.
 
 ## Slice 2 sketch (so slice 1 does not paint us into a corner)
 

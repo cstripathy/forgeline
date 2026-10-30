@@ -401,6 +401,9 @@ func (s *Server) stepLogTail(ctx context.Context, runID, stepID string) string {
 func (s *Server) askAssistant(ctx context.Context, role authn.Role, turns []chatTurn, ctxText string) (string, error) {
 	st := s.loadAssistant(ctx)
 	system := assistantSystem
+	if sc := scopeFrom(ctx); sc != nil {
+		system += "\n\n" + sc.persona
+	}
 	if role != "" {
 		system += "\n\nLookups you may use:\n" + s.lookupHelp(ctx, role)
 	}

@@ -94,6 +94,21 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | `POST /v1/integrations/aws/sso/connect` | admin | Body: `account_id`, `account_name`, `role_name`, `region`. Tests the credentials before keeping them. |
 | `GET /v1/integrations/aws/sso` | developer | Whether you are signed in, and until when. |
 | `DELETE /v1/integrations/aws/sso` | admin | Sign out and delete the stored token. |
+| `GET /v1/ai/tools` | developer | The tools an agent can be given, with the role each needs. |
+| `GET /v1/ai/skills` | developer | Skills (name, description, current version). |
+| `GET /v1/ai/skills/{id}` | developer | One skill with every version. |
+| `POST /v1/ai/skills` | admin | Create a skill (version 1). |
+| `POST /v1/ai/skills/{id}/versions` | admin | Save a new version; history is append-only and an unchanged save is refused. |
+| `POST /v1/ai/skills/{id}/rollback` | admin | Make an old version current by copying it forward as a new version. |
+| `DELETE /v1/ai/skills/{id}` | admin | Remove a skill no agent version uses. |
+| `GET /v1/ai/agents` | developer | Agents with current version, tier and tools. |
+| `GET /v1/ai/agents/{id}` | developer | One agent with every version. |
+| `POST /v1/ai/agents` | admin | Create an agent (version 1): instructions, pinned skills, tool allowlist, tier T0 or T1. |
+| `POST /v1/ai/agents/{id}/versions` | admin | Save a new version; skill pins are made exact. |
+| `POST /v1/ai/agents/{id}/rollback` | admin | Copy an old version forward as the current one. |
+| `POST /v1/ai/agents/{id}/disable` | admin | Turn an agent off (it cannot run or be listed). |
+| `POST /v1/ai/agents/{id}/enable` | admin | Turn it back on. |
+| `POST /v1/ai/agents/{id}/chat` | developer | Talk to an agent (`version` optional). It uses only its own tools, as the asker. |
 | `GET /v1/aws/accounts` | viewer | The connected AWS accounts: the primary one and any added. |
 | `POST /v1/aws/accounts` | admin | Add a read-only account by profile and region; proves it with `sts get-caller-identity`, refuses duplicates. |
 | `DELETE /v1/aws/accounts/{id}` | admin | Remove an added account. Changes nothing in AWS. |
