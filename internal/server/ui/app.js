@@ -8,6 +8,7 @@ import { runPage } from './pages/run.js';
 import { pipelinesPage } from './pages/pipelines.js';
 import { pipelineEditorPage } from './pages/editor.js';
 import { actionsPage } from './pages/actions.js';
+import { proposalsPage } from './pages/proposals.js';
 import { infraPage } from './pages/infra.js';
 import { integrationsPage } from './pages/integrations.js';
 import { secretsPage } from './pages/secrets.js';
@@ -24,6 +25,7 @@ const NAV = [
   { path: '/pipelines', label: 'Pipelines', icon: 'flow', min: 'viewer', also: ['/pipelines/', '/runs/'] },
   { path: '/actions', label: 'Actions', icon: 'bolt', min: 'developer' },
   { path: '/infrastructure', label: 'Infrastructure', icon: 'server', min: 'viewer' },
+  { path: '/proposals', label: 'Proposals', icon: 'check', min: 'viewer' },
   { path: '/integrations', label: 'Integrations', icon: 'plug', min: 'developer' },
   { path: '/secrets', label: 'Secrets', icon: 'key', min: 'developer' },
   { path: '/people', label: 'People', icon: 'users', min: 'admin' },
@@ -136,6 +138,8 @@ async function boot() {
     route('/pipelines/:id', guard('viewer', pipelineEditorPage));
     route('/runs/:id', guard('viewer', runPage));
     route('/actions', guard('developer', actionsPage));
+    route('/proposals', guard('viewer', proposalsPage));
+    route('/proposals/:id', guard('viewer', proposalsPage));
     route('/infrastructure', guard('viewer', infraPage));
     route('/integrations', guard('developer', integrationsPage));
     route('/secrets', guard('developer', secretsPage));

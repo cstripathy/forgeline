@@ -42,3 +42,36 @@ approve and a second administrator rejected, so nothing in that account changed.
 
 Three read-only `call_aws` lookups (clusters, services, service details) against the AWS stand-in
 `scripts/dev/fake-aws`, answered by the real `claude`. Design note 015.
+
+## AWS MCP Server and change proposals
+
+![AWS MCP Server switch](40-mcp-settings.png)
+
+![Proposals list](41-proposals-list.png)
+
+![A proposal under review: why, the AWS calls, the exact script, approve or reject](42-proposal-review.png)
+
+![The same proposal after a different administrator approved it](43-proposal-applied.png)
+
+### AWS resource explorer
+
+Infrastructure → AWS account lists everything in the connected account by service (ECS clusters and
+services, EC2, Lambda, S3, RDS, DynamoDB, VPCs, load balancers, queues, log groups and more), with
+state, search, a detail panel per resource, and a mark on anything an approved proposal changed. It
+only reads, and a service the role may not list is named instead of shown as empty.
+
+![The resource explorer on a real account, with the cluster created through an approved proposal](44-aws-explorer.png)
+
+The assistant drafted the change, another administrator approved the exact script, Forgeline applied
+it through `scripts/dev/fake-aws-mcp` (a stand-in; design note 016).
+
+### Several AWS accounts
+
+Infrastructure → AWS account has an account switcher. The connection made first is the primary
+account; administrators can add more by profile and region (Add account proves the profile with
+`sts get-caller-identity`, labels it production, staging, development or sandbox, and refuses an
+account that is already added). Every account can be read: the explorer, stacks, spend, and the
+assistant (`aws_accounts`, then `aws_summary` or `call_aws` with an `account`). Changes are proposed
+for the primary account only; the page says so on the others. Removing an account changes nothing in AWS.
+
+![An added account (a second real AWS account) in the explorer](45-aws-accounts.png)

@@ -157,6 +157,7 @@ func badAWSValue(v string) bool {
 func (s *Server) lookupCallAWS(ctx context.Context, raw json.RawMessage) (string, error) {
 	var a struct {
 		Command string `json:"cli_command"`
+		Account string `json:"account"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return "", err
@@ -165,7 +166,10 @@ func (s *Server) lookupCallAWS(ctx context.Context, raw json.RawMessage) (string
 	if err != nil {
 		return "", err
 	}
-	st := s.loadAWS(ctx)
+	st, err := s.awsFor(ctx, a.Account)
+	if err != nil {
+		return "", err
+	}
 	if !st.Enabled {
 		return "", errors.New("AWS is not connected to this Forgeline server")
 	}
@@ -195,7 +199,11 @@ func lookupDetail(c lookupCall) string {
 	}
 	var a struct {
 		Command string `json:"cli_command"`
+		Account string `json:"account"`
 	}
 	_ = json.Unmarshal(c.Args, &a)
+	if a.Account != "" {
+		return "call_aws [" + truncate(a.Account, 40) + "]: " + truncate(strings.TrimSpace(a.Command), 200)
+	}
 	return "call_aws: " + truncate(strings.TrimSpace(a.Command), 200)
 }

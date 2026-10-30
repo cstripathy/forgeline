@@ -393,12 +393,15 @@ type costCache struct {
 
 func (s *Server) handleAWS(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	st := s.loadAWS(ctx)
+	st, acct, ok := s.accountParam(w, r)
+	if !ok {
+		return
+	}
 	if !st.Enabled {
 		writeJSON(w, http.StatusOK, AWSJSON{Enabled: false, Stacks: []AWSStackJSON{}, Instances: []AWSInstanceJSON{}})
 		return
 	}
-	key := st.Profile + "|" + st.Region
+	key := acct + "|" + st.Profile + "|" + st.Region
 	s.awsCache.mu.Lock()
 	if r.URL.Query().Get("refresh") != "1" && s.awsCache.key == key && time.Since(s.awsCache.at) < awsCacheTTL {
 		d := s.awsCache.data
@@ -540,12 +543,15 @@ type CostService struct {
 // and the console asks for it only on request.
 func (s *Server) handleAWSCost(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	st := s.loadAWS(ctx)
+	st, acct, ok := s.accountParam(w, r)
+	if !ok {
+		return
+	}
 	if !st.Enabled {
 		writeError(w, http.StatusConflict, "connect an AWS account first")
 		return
 	}
-	key := st.Profile
+	key := acct + "|" + st.Profile
 	s.awsCache.mu.Lock()
 	if c := s.awsCache.cost; c != nil && c.key == key && time.Since(c.at) < costCacheTTL && r.URL.Query().Get("refresh") != "1" {
 		d := c.data

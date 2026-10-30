@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+# A stand-in for `uvx mcp-proxy-for-aws <endpoint>`: speaks MCP over stdio and answers aws___run_script
+# for a few ECS and EC2 calls, remembering changes in $FAKE_AWS_MCP_STATE. See README.md.
+import json, os, re, sys
+
+STATE = os.environ.get("FAKE_AWS_MCP_STATE", "/tmp/fake-aws-mcp-state.json")
+ACCT, REGION = "111122223333", "ap-south-1"
+
+def load():
+    try: return json.load(open(STATE))
+    except Exception: return {"web_desired": 3}
+def save(s): json.dump(s, open(STATE, "w"))
+
+TOOLS = [(n, ro) for n, ro in [("aws___get_tasks", True), ("aws___list_regions", True), ("aws___read_documentation", True),
+         ("aws___search_documentation", True), ("aws___retrieve_skill", True), ("aws___get_regional_availability", True),
+         ("aws___run_script", False), ("aws___get_presigned_url", False)]]
+
+def answer(service, op, st):
+    if (service, op) == ("ecs", "ListClusters"): return {"clusterArns": ["arn:aws:ecs:%s:%s:cluster/payments" % (REGION, ACCT)]}
+    if (service, op) == ("ecs", "ListServices"): return {"serviceArns": ["arn:aws:ecs:%s:%s:service/payments/web" % (REGION, ACCT), "arn:aws:ecs:%s:%s:service/payments/worker" % (REGION, ACCT)]}
+    if (service, op) == ("ecs", "DescribeServices"):
+        return {"services": [
+            {"serviceName": "web", "desiredCount": st["web_desired"], "runningCount": st["web_desired"], "launchType": "FARGATE", "deploymentController": {"type": "ECS"},
+             "deploymentConfiguration": {"strategy": "ROLLING", "maximumPercent": 200, "minimumHealthyPercent": 100}, "loadBalancers": [{"containerName": "web", "containerPort": 8080}]},
+            {"serviceName": "worker", "desiredCount": 1, "runningCount": 1, "launchType": "FARGATE", "deploymentController": {"type": "ECS"}, "loadBalancers": []}]}
+    if (service, op) == ("ecs", "UpdateService"):
+        m = re.search(r"desiredCount['\"]?\s*[:=]\s*(\d+)", CODE)
+        if m: st["web_desired"] = int(m.group(1)); save(st)
+        return {"service": {"serviceName": "web", "desiredCount": st["web_desired"], "status": "ACTIVE"}}
+    if (service, op) == ("sts", "GetCallerIdentity"): return {"Account": ACCT, "Arn": "arn:aws:sts::%s:assumed-role/Admin/ada" % ACCT}
+    return {}
+
+def run_script(code):
+    global CODE; CODE = code
+    st = load(); calls = []; last = None
+    for m in re.finditer(r"call_boto3\s*\((.*?)\)\s*(?:\n|$|\]|,\))", code, re.S):
+        args = m.group(1)
+        s = re.search(r"service_name\s*=\s*['\"]([\w-]+)['\"]", args); o = re.search(r"operation_name\s*=\s*['\"](\w+)['\"]", args)
+        if not (s and o): continue
+        last = answer(s.group(1), o.group(1), st)
+        calls.append({"service": s.group(1), "operation": o.group(1), "status": "success"})
+    body = {"status": "success", "stdout": "", "stderr": None, "return_value": last, "warning": None, "api_calls": calls}
+    return {"content": [{"type": "text", "text": json.dumps(body)}], "structuredContent": body, "isError": False}
+
+for line in sys.stdin:
+    try: m = json.loads(line)
+    except Exception: continue
+    if "id" not in m: continue
+    method, i = m.get("method"), m["id"]
+    if method == "initialize":
+        res = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {"listChanged": False}}, "serverInfo": {"name": "fake-aws-mcp", "version": "0"}}
+    elif method == "tools/list":
+        res = {"tools": [{"name": n, "description": n, "inputSchema": {"type": "object"}, "annotations": {"readOnlyHint": ro, "destructiveHint": n == "aws___run_script"}} for n, ro in TOOLS]}
+    elif method == "tools/call":
+        p = m["params"]
+        res = run_script(p["arguments"].get("code", "")) if p["name"] == "aws___run_script" else {"content": [{"type": "text", "text": "documentation for " + p["name"] + ": ECS supports canary deployments with ALB"}], "isError": False}
+    else:
+        print(json.dumps({"jsonrpc": "2.0", "id": i, "error": {"message": "unsupported"}}), flush=True); continue
+    print(json.dumps({"jsonrpc": "2.0", "id": i, "result": res}), flush=True)

@@ -55,6 +55,7 @@ calling.
 | Role | Checked on the server for each call; the prompt lists only the tools the asker may use |
 | Strict parsing | The whole reply must be one block. A block inside prose, or two blocks, is treated as an answer and nothing runs |
 | Limits | At most 6 lookups a question, results cut to 12 KB, a closing tag inside a result is escaped |
+| MCP lookups | With the AWS MCP Server on (note 016): `aws_script` (administrators, read-only scripts), documentation tools, and `propose_aws_change`, which only files a proposal. `call_aws` is off in that mode |
 | `call_aws` | Administrators only; one read-only AWS CLI command through the console's AWS connection. Rules in design note 015 |
 | Audit | Each lookup is recorded (`assistant.lookup`) and the chat entry counts them; the panel shows "looked up: ..." |
 
@@ -65,3 +66,5 @@ broken one at a time to confirm a test fails (role, escape, cap). Two parse rule
 block) are also guarded by JSON parsing, so removing either alone changes nothing. Tried with the
 real `claude` through the `claude-token` backend: it listed runs, found a failing run and read
 its log.
+
+With more than one AWS account connected (note 017) the assistant first calls `aws_accounts`, then passes an `account` id to `aws_summary` or `call_aws`. `call_aws` stays off for the primary account while the AWS MCP Server is on, but works for added accounts because the MCP server only serves the primary one.
