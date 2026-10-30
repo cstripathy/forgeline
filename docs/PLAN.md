@@ -304,6 +304,8 @@ Design: [docs/design/006-console.md](design/006-console.md). Pictures: [docs/con
 
 ## Next steps (in order)
 
+> Market research (2026-10-30) is in `docs/design/012-market-research.md`: pain points, enterprise gaps, integrations, a UI plan and a ranked backlog of 16 items. Pick from its ranking once the items below that need a real-service check are done or blocked.
+
 Do these top to bottom. Items marked **needs a decision** must wait for the maintainer; ask once,
 with a recommendation, and do something else meanwhile.
 
