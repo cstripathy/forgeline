@@ -3,6 +3,7 @@ import { get, put, post, atLeast } from '../lib/api.js';
 import { navigate } from '../lib/router.js';
 import { session } from '../app.js';
 import { ssoWizard } from './aws_sso.js';
+import { explorer } from './aws_explorer.js';
 
 const TABS = [['platform', 'Platform'], ['aws', 'AWS account'], ['changes', 'Cloud changes']];
 
@@ -100,7 +101,7 @@ async function aws(body) {
           admin && h('button', { class: 'btn-secondary btn-sm', type: 'button', onclick: () => connectModal(v) }, 'Change connection'))),
       v.error && h('div', { class: 'mb-4' }, errorBox(v.error)),
       v.section_errors && Object.entries(v.section_errors).map(([k, m]) => h('div', { class: 'mb-4' }, notice('warn', h('strong', {}, k + ': '), m))),
-      !v.error && h('div', { class: 'space-y-4' }, stacksCard(v), instancesCard(v), costCard(), admin && mcpCard()));
+      !v.error && h('div', { class: 'space-y-4' }, explorer({ dev }), stacksCard(v), instancesCard(v), costCard(), admin && mcpCard()));
   }
 
   function mcpCard() {

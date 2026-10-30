@@ -98,6 +98,7 @@ type Server struct {
 	started  time.Time
 	run      cmdRunner // runs docker and aws; replaced in tests
 	awsCache awsCache
+	awsInv   invCache
 
 	ghApp     ghAppRegistry // GitHub App setups waiting for GitHub
 	ghTokens  sync.Map      // "appID/installationID" -> *ghTokenCache

@@ -53,5 +53,14 @@ Three read-only `call_aws` lookups (clusters, services, service details) against
 
 ![The same proposal after a different administrator approved it](43-proposal-applied.png)
 
+### AWS resource explorer
+
+Infrastructure → AWS account lists everything in the connected account by service (ECS clusters and
+services, EC2, Lambda, S3, RDS, DynamoDB, VPCs, load balancers, queues, log groups and more), with
+state, search, a detail panel per resource, and a mark on anything an approved proposal changed. It
+only reads, and a service the role may not list is named instead of shown as empty.
+
+![The resource explorer on a real account, with the cluster created through an approved proposal](44-aws-explorer.png)
+
 The assistant drafted the change, another administrator approved the exact script, Forgeline applied
 it through `scripts/dev/fake-aws-mcp` (a stand-in; design note 016).

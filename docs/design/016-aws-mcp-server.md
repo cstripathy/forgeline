@@ -45,9 +45,17 @@ Rules were removed one at a time and a test failed each time (proposer rule, has
 for both paths, read guard, busy lock, expiry, target check, change rules, script role, script tool
 requirement). In a browser with the real `claude` (developer account) against `scripts/dev/fake-aws-mcp`: an administrator turned the server on, the developer asked the assistant to scale an ECS service, the assistant filed a proposal with a read-then-update script (one earlier attempt was refused by the script rules and the model corrected itself), a second administrator reviewed the exact script and approved it, and the proposal showed the calls the sandbox reported. The browser run found three bugs, all fixed: the Proposals page returned a function instead of an element, a stray `0` rendered under the page, and the model wrote `call_boto3` with the API's arguments as keywords instead of `params` (now refused with an explanation). While the MCP server is on, `call_aws` (CLI) is turned off so there is one path to AWS.
 
+## Checked on the real endpoint (2026-10-30)
+
+Account `982740124073`, profile `default`, `ap-south-1`, through `uvx mcp-proxy-for-aws@1.6.0`. The
+assistant (developer `dev`, real `claude`) filed proposal `WNn_CRYdFKCD`: describe cluster
+`forgeline-apply-test`, create it only if absent. A different administrator approved it and it applied.
+The sandbox reported `DescribeClusters` then `CreateCluster`, matching the two declared calls, and
+`aws ecs describe-clusters` showed the cluster ACTIVE and empty. The resource explorer
+(`GET /v1/infra/aws/resources`) then listed it, marked as changed through Forgeline.
+
 ## Not checked
 
-- **Applying a change on the real AWS MCP Server.** Reads were probed on the real endpoint (tool list, `GetCallerIdentity`); no change was applied there.
 - The sandbox's behaviour with scripts the stand-in does not understand (loops, pagination, many calls).
 - Start-up time of the proxy per call (about 1 to 3 seconds in the probe) under load.
 - The script rules are a reader, not a Python parser. They are layered with the sandbox's own `api_calls` check, and the strongest control is still the IAM role: run Forgeline's AWS profile with the least permissions that work.
