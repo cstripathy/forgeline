@@ -12,7 +12,7 @@ Claude, without becoming the easiest way to leak a secret or change the platform
 
 | Decision | Choice |
 | --- | --- |
-| What it can do | Answer in text. It has **no tools**. A pipeline it drafts is only text until a person opens it in the editor and saves it; a cloud change still needs a proposal and a second administrator |
+| What it can do | Answer in text. It has no write tools; since 2026-10-30 it can also run a few read-only lookups (see "Lookups" below). A pipeline it drafts is only text until a person opens it in the editor and saves it; a cloud change still needs a proposal and a second administrator |
 | What it sees | Only what the console already shows the signed-in person, chosen by the page (a run with its pipeline, step states and the tail of each step's log; a pipeline; the AWS summary; the recent runs). Logs were masked when stored. It never gets secret values |
 | Untrusted data | Everything gathered is placed inside `<untrusted_context>` and the system prompt says it is data, never instructions. A closing tag inside the data is escaped so it cannot end the block |
 | Who | Developers and administrators ask; administrators configure. Twenty questions a minute per person |
@@ -40,3 +40,27 @@ suspicious and did not obey it; it drafted a pipeline that opened in the editor,
 stand-in server was used), several people using one server, and long conversations (history is
 capped at twelve turns). Replies are shown as plain text: markdown such as `**bold**` is not
 rendered.
+
+## Lookups (added 2026-10-30, design note 013 item A2)
+
+The assistant can fetch more of what the console shows instead of only what the page picked. It
+asks by replying with exactly one fenced block (`forgeline-lookup`) holding a tool name and
+arguments; the **server** runs it as the person who asked and gives the result back inside
+`<lookup_result>` as data. This works with every backend because it does not use native tool
+calling.
+
+| Rule | Detail |
+| --- | --- |
+| Tools | `list_runs`, `get_run`, `get_step_log`, `list_pipelines`, `get_pipeline`, `aws_summary`, and `search_audit` (administrators only). None writes, applies, approves or reads a secret value |
+| Role | Checked on the server for each call; the prompt lists only the tools the asker may use |
+| Strict parsing | The whole reply must be one block. A block inside prose, or two blocks, is treated as an answer and nothing runs |
+| Limits | At most 6 lookups a question, results cut to 12 KB, a closing tag inside a result is escaped |
+| Audit | Each lookup is recorded (`assistant.lookup`) and the chat entry counts them; the panel shows "looked up: ..." |
+
+Checked with Go tests (race detector): lookups run server-side and come back as data, a planted
+closing tag cannot escape, prose or double blocks do not run, unknown tools and tools above the
+asker's role are refused, a runaway model is cut off, and no native `tools` are sent. Rules were
+broken one at a time to confirm a test fails (role, escape, cap). Two parse rules (prefix, single
+block) are also guarded by JSON parsing, so removing either alone changes nothing. Tried with the
+real `claude` through the `claude-token` backend: it listed runs, found a failing run and read
+its log.

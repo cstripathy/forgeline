@@ -104,7 +104,7 @@ function build(close, role) {
     try {
       const r = await post('/v1/assistant/chat', { message: q, history, context: { kind: c.kind, id: c.id } });
       history.push({ role: 'user', content: q }, { role: 'assistant', content: r.reply });
-      wait.replaceWith(bubble('assistant', ...replyNodes(r.reply), h('div', { class: 'muted text-[11px]' }, 'Based on: ' + r.context)));
+      wait.replaceWith(bubble('assistant', ...replyNodes(r.reply), h('div', { class: 'muted text-[11px]' }, 'Based on: ' + r.context + ((r.lookups || []).length ? ' · looked up: ' + r.lookups.join(', ') : ''))));
     } catch (e) {
       wait.replaceWith(h('div', {}, errorBox(e.message)));
     }
