@@ -45,6 +45,7 @@ func assistantLookups() []lookupTool {
 		{"list_pipelines", `{} saved pipelines with their ids`, authn.Viewer, (*Server).lookupListPipelines},
 		{"get_pipeline", `{"id":"pipeline id"} one saved pipeline file`, authn.Viewer, (*Server).lookupGetPipeline},
 		{"aws_summary", `{} the connected AWS account summary`, authn.Viewer, (*Server).lookupAWS},
+		{"call_aws", `{"cli_command":"aws ecs list-clusters --region ap-south-1"} one read-only AWS CLI call (describe-, list-, get- only; no secrets, credentials, data or logs). Administrators only`, authn.Admin, (*Server).lookupCallAWS},
 		{"search_audit", `{"actor":"optional","action":"optional prefix, e.g. cloud.","limit":"optional, up to 50"} audit entries (administrators only)`, authn.Admin, (*Server).lookupAudit},
 	}
 }
@@ -59,18 +60,24 @@ func lookupHelp(role authn.Role) string {
 	return b.String()
 }
 
-// parseLookup returns the call if the whole reply is exactly one lookup block.
+// parseLookup returns the call if the whole reply is exactly one lookup: a fenced block, or the
+// bare JSON object when the model leaves a fence off (real models do). Anything else, such as
+// prose around a block or two blocks, is an answer and nothing runs.
 func parseLookup(reply string) (lookupCall, bool) {
 	r := strings.TrimSpace(reply)
-	if !strings.HasPrefix(r, lookupFence) || !strings.HasSuffix(r, "```") || len(r) < len(lookupFence)+3 {
-		return lookupCall{}, false
+	for _, open := range []string{lookupFence, "```json", "```"} {
+		if strings.HasPrefix(r, open) {
+			r = strings.TrimSpace(strings.TrimPrefix(r, open))
+			break
+		}
 	}
-	body := strings.TrimSpace(r[len(lookupFence) : len(r)-3])
-	if strings.Contains(body, "```") {
+	r = strings.TrimSpace(strings.TrimSuffix(r, "```"))
+	if !strings.HasPrefix(r, "{") || !strings.HasSuffix(r, "}") || strings.Contains(r, "```") {
 		return lookupCall{}, false
 	}
 	var c lookupCall
-	if err := json.Unmarshal([]byte(body), &c); err != nil || c.Tool == "" {
+	dec := json.NewDecoder(strings.NewReader(r))
+	if err := dec.Decode(&c); err != nil || c.Tool == "" || dec.More() {
 		return lookupCall{}, false
 	}
 	return c, true
@@ -96,7 +103,7 @@ func (s *Server) runLookup(ctx context.Context, p Principal, c lookupCall) (stri
 
 // askWithLookups asks the model, runs any lookups it requests (up to maxLookups) and returns the
 // final answer and the names of the lookups that ran.
-func (s *Server) askWithLookups(ctx context.Context, p Principal, turns []chatTurn, ctxText string, audit func(tool string, ok bool)) (string, []string, error) {
+func (s *Server) askWithLookups(ctx context.Context, p Principal, turns []chatTurn, ctxText string, audit func(detail string, ok bool)) (string, []string, error) {
 	var used []string
 	for i := 0; ; i++ {
 		reply, err := s.askAssistant(ctx, p.Role, turns, ctxText)
@@ -120,7 +127,7 @@ func (s *Server) askWithLookups(ctx context.Context, p Principal, turns []chatTu
 			return reply, used, nil
 		}
 		out, lerr := s.runLookup(ctx, p, call)
-		audit(call.Tool, lerr == nil)
+		audit(lookupDetail(call), lerr == nil)
 		used = append(used, call.Tool)
 		var msg string
 		if lerr != nil {

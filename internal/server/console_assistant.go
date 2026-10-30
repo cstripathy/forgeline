@@ -512,7 +512,10 @@ func askCLI(ctx context.Context, model, system string, turns []chatTurn, token s
 		return "", err
 	}
 	args := []string{"-p", "--output-format", "text", "--max-turns", "1", "--tools", "",
-		"--disable-slash-commands", "--no-session-persistence", "--system-prompt-file", sysFile}
+		"--disable-slash-commands", "--no-session-persistence",
+		// --tools "" removes the built-in tools only. Without this the program would also load the MCP
+		// servers of the server user's own setup and could call them.
+		"--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--system-prompt-file", sysFile}
 	if model != "" {
 		args = append(args, "--model", model)
 	}

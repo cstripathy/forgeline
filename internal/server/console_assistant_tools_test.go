@@ -127,6 +127,18 @@ func TestAssistantLookupRulesAreStrict(t *testing.T) {
 	if r := ask(dev, prose); len(r.Lookups) != 0 || r.Reply != prose || llm.count() != 1 {
 		t.Errorf("prose with a block ran a lookup: %+v, calls %d", r, llm.count())
 	}
+	// A model that drops a fence still gets its lookup run; one that adds words does not.
+	bare := `{"tool":"list_pipelines","args":{}}`
+	for _, in := range []string{bare, bare + "\n```", "```json\n" + bare + "\n```"} {
+		if r := ask(dev, in, "done"); len(r.Lookups) != 1 {
+			t.Errorf("%q did not run a lookup", in)
+		}
+	}
+	for _, in := range []string{"Sure: " + bare, bare + " thanks", bare + bare} {
+		if r := ask(dev, in); len(r.Lookups) != 0 {
+			t.Errorf("%q ran a lookup", in)
+		}
+	}
 	// Two blocks in one reply are not a lookup either.
 	two := lookupReply("get_run", map[string]string{"id": runID}) + "\n" + lookupReply("aws_summary", nil)
 	if r := ask(dev, two); len(r.Lookups) != 0 || llm.count() != 1 {
