@@ -100,7 +100,29 @@ async function aws(body) {
           admin && h('button', { class: 'btn-secondary btn-sm', type: 'button', onclick: () => connectModal(v) }, 'Change connection'))),
       v.error && h('div', { class: 'mb-4' }, errorBox(v.error)),
       v.section_errors && Object.entries(v.section_errors).map(([k, m]) => h('div', { class: 'mb-4' }, notice('warn', h('strong', {}, k + ': '), m))),
-      !v.error && h('div', { class: 'space-y-4' }, stacksCard(v), instancesCard(v), costCard()));
+      !v.error && h('div', { class: 'space-y-4' }, stacksCard(v), instancesCard(v), costCard(), admin && mcpCard()));
+  }
+
+  function mcpCard() {
+    const box = h('section', { class: 'card card-pad', id: 'mcp-card' }, spinner());
+    async function draw() {
+      let m;
+      try { m = await get('/v1/integrations/aws/mcp'); } catch (e) { return mount(box, errorBox(e.message)); }
+      const err = h('div', { class: 'mt-3 hidden' });
+      const toggle = h('button', { class: m.enabled ? 'btn-secondary btn-sm' : 'btn-primary btn-sm', type: 'button', onclick: async () => {
+        toggle.disabled = true; toggle.textContent = m.enabled ? 'Turning off…' : 'Starting the proxy…';
+        try { await put('/v1/integrations/aws/mcp', { enabled: !m.enabled }); toast(m.enabled ? 'Turned off' : 'AWS MCP Server is on', 'ok'); draw(); }
+        catch (e) { mount(err, errorBox(e.message)); err.classList.remove('hidden'); toggle.disabled = false; toggle.textContent = m.enabled ? 'Turn off' : 'Turn on'; }
+      } }, m.enabled ? 'Turn off' : 'Turn on');
+      mount(box, h('div', { class: 'flex flex-wrap items-start justify-between gap-3' },
+        h('div', {}, h('div', { class: 'flex items-center gap-2' }, h('h2', { class: 'h-section' }, 'AWS MCP Server'), m.enabled ? h('span', { class: 'pill-ok' }, 'On') : h('span', { class: 'pill-idle' }, 'Off')),
+          h('p', { class: 'muted mt-1 max-w-2xl text-sm' }, 'Lets the assistant read this account through AWS\'s managed MCP endpoint, and apply a change that a different administrator approved. The assistant itself can only read and file proposals (see Proposals).')),
+        toggle),
+        m.enabled && m.tools.length ? h('p', { class: 'muted mt-3 text-xs' }, 'Tools offered: ', h('span', { class: 'font-mono' }, m.tools.join(', '))) : null,
+        h('p', { class: 'muted mt-1 text-xs' }, 'Through ', h('code', {}, m.proxy), ' to ', h('code', {}, m.endpoint)), err);
+    }
+    draw();
+    return box;
   }
 
   function connectCard() {

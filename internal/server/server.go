@@ -88,9 +88,12 @@ type Server struct {
 	docs     docstore.Store
 	vault    *vault.Vault
 	throttle throttle
-	setupMu  sync.Mutex // serialises first-run setup
-	userMu   sync.Mutex // serialises changes to accounts, for the last-admin rule
-	pipeMu   sync.Mutex // serialises pipeline edits, for the version check
+	setupMu  sync.Mutex                                                 // serialises first-run setup
+	userMu   sync.Mutex                                                 // serialises changes to accounts, for the last-admin rule
+	pipeMu   sync.Mutex                                                 // serialises pipeline edits, for the version check
+	aiMu     sync.Mutex                                                 // guards aiBusy and proposal decisions
+	aiBusy   bool                                                       // an approved AI change is being applied
+	mcpStart func(ctx context.Context, st awsSettings) (mcpConn, error) // replaced in tests
 
 	started  time.Time
 	run      cmdRunner // runs docker and aws; replaced in tests

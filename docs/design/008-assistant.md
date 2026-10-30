@@ -55,6 +55,7 @@ calling.
 | Role | Checked on the server for each call; the prompt lists only the tools the asker may use |
 | Strict parsing | The whole reply must be one block. A block inside prose, or two blocks, is treated as an answer and nothing runs |
 | Limits | At most 6 lookups a question, results cut to 12 KB, a closing tag inside a result is escaped |
+| MCP lookups | With the AWS MCP Server on (note 016): `aws_script` (administrators, read-only scripts), documentation tools, and `propose_aws_change`, which only files a proposal. `call_aws` is off in that mode |
 | `call_aws` | Administrators only; one read-only AWS CLI command through the console's AWS connection. Rules in design note 015 |
 | Audit | Each lookup is recorded (`assistant.lookup`) and the chat entry counts them; the panel shows "looked up: ..." |
 

@@ -227,9 +227,10 @@ type chatRequest struct {
 
 // ChatReply is the assistant's answer.
 type ChatReply struct {
-	Reply   string   `json:"reply"`
-	Context string   `json:"context"`           // what the answer was based on, for display
-	Lookups []string `json:"lookups,omitempty"` // read-only lookups the assistant ran to answer
+	Reply     string   `json:"reply"`
+	Context   string   `json:"context"`             // what the answer was based on, for display
+	Proposals []string `json:"proposals,omitempty"` // change proposals the assistant filed
+	Lookups   []string `json:"lookups,omitempty"`   // read-only lookups the assistant ran to answer
 }
 
 const assistantSystem = `You are the assistant built into Forgeline, a CI/CD platform. You help the signed-in person understand their pipelines, runs, logs and cloud account, and you draft pipeline files.
@@ -293,7 +294,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	turns = append(turns, chatTurn{Role: "user", Content: req.Message})
 
-	reply, lookups, err := s.askWithLookups(r.Context(), p, turns, ctxText, func(tool string, ok bool) {
+	sink := &lookupSink{}
+	reply, lookups, err := s.askWithLookups(context.WithValue(r.Context(), lookupSinkKey{}, sink), p, turns, ctxText, func(tool string, ok bool) {
 		s.auditReq(r, "assistant.lookup", "assistant", tool, ok)
 	})
 	s.auditReq(r, "assistant.chat", "assistant", fmt.Sprintf("%s, %d chars asked, %d lookups, %v", ctxNote, len(req.Message), len(lookups), err == nil), err == nil)
@@ -301,7 +303,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, ChatReply{Reply: reply, Context: ctxNote, Lookups: lookups})
+	writeJSON(w, http.StatusOK, ChatReply{Reply: reply, Context: ctxNote, Lookups: lookups, Proposals: sink.proposals})
 }
 
 // assistantContext gathers what the assistant may see: only things the console already shows to
@@ -400,7 +402,7 @@ func (s *Server) askAssistant(ctx context.Context, role authn.Role, turns []chat
 	st := s.loadAssistant(ctx)
 	system := assistantSystem
 	if role != "" {
-		system += "\n\nLookups you may use:\n" + lookupHelp(role)
+		system += "\n\nLookups you may use:\n" + s.lookupHelp(ctx, role)
 	}
 	if ctxText != "" {
 		// A closing tag inside the data must not be able to end the block early.

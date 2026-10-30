@@ -129,12 +129,13 @@ const STATUS_PILL = {
   failed: ['pill-bad', 'Failed'], rejected: ['pill-bad', 'Rejected'],
   running: ['pill-run', 'Running'], executing: ['pill-run', 'Executing'], preparing: ['pill-run', 'Preparing'],
   queued: ['pill-wait', 'Queued'], pending: ['pill-wait', 'Pending'], proposed: ['pill-wait', 'Awaiting approval'],
+  applying: ['pill-run', 'Applying'], applied: ['pill-ok', 'Applied'], cancelled: ['pill-idle', 'Withdrawn'],
   canceled: ['pill-idle', 'Canceled'], skipped: ['pill-idle', 'Skipped'], expired: ['pill-idle', 'Expired'],
 };
 
 export function pill(status, label) {
   const [cls, text] = STATUS_PILL[status] || ['pill-idle', status];
-  const live = status === 'running' || status === 'executing' || status === 'preparing';
+  const live = status === 'applying' || status === 'running' || status === 'executing' || status === 'preparing';
   return h('span', { class: cls }, h('span', { class: 'size-1.5 rounded-full bg-current ' + (live ? 'animate-pulse-dot' : '') }), label || text);
 }
 

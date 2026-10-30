@@ -42,3 +42,16 @@ approve and a second administrator rejected, so nothing in that account changed.
 
 Three read-only `call_aws` lookups (clusters, services, service details) against the AWS stand-in
 `scripts/dev/fake-aws`, answered by the real `claude`. Design note 015.
+
+## AWS MCP Server and change proposals
+
+![AWS MCP Server switch](40-mcp-settings.png)
+
+![Proposals list](41-proposals-list.png)
+
+![A proposal under review: why, the AWS calls, the exact script, approve or reject](42-proposal-review.png)
+
+![The same proposal after a different administrator approved it](43-proposal-applied.png)
+
+The assistant drafted the change, another administrator approved the exact script, Forgeline applied
+it through `scripts/dev/fake-aws-mcp` (a stand-in; design note 016).

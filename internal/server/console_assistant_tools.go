@@ -46,13 +46,29 @@ func assistantLookups() []lookupTool {
 		{"get_pipeline", `{"id":"pipeline id"} one saved pipeline file`, authn.Viewer, (*Server).lookupGetPipeline},
 		{"aws_summary", `{} the connected AWS account summary`, authn.Viewer, (*Server).lookupAWS},
 		{"call_aws", `{"cli_command":"aws ecs list-clusters --region ap-south-1"} one read-only AWS CLI call (describe-, list-, get- only; no secrets, credentials, data or logs). Administrators only`, authn.Admin, (*Server).lookupCallAWS},
+		{"aws_script", `{"code":"r = await call_boto3(service_name='ecs', operation_name='ListClusters', region_name='ap-south-1', params={})\nresult = r\nresult"} read-only AWS API calls through the AWS MCP Server; every call_boto3 must name its service and operation in quotes, and only Describe, List and Get operations run. Administrators only`, authn.Admin, (*Server).lookupAWSScript},
+		{"propose_aws_change", `{"title":"...","reason":"why, for the approver","code":"r = await call_boto3(service_name='ecs', operation_name='UpdateService', region_name='ap-south-1', params={'cluster':'payments','service':'web','desiredCount':2})\nresult = r\nresult"} files a change proposal; nothing runs until a different administrator approves it. Cannot delete, terminate, or touch iam, organizations, sts, kms, secrets, ssm or logging`, authn.Developer, (*Server).lookupProposeChange},
+		{"aws_search_documentation", `{"search_phrase":"...","limit":5} search AWS documentation`, authn.Developer, nil},
+		{"aws_read_documentation", `{"requests":[{"url":"..."}]} read AWS documentation pages`, authn.Developer, nil},
+		{"aws_retrieve_skill", `{"skill_name":"...","file":"optional"} load an AWS procedure`, authn.Developer, nil},
+		{"aws_list_regions", `{} list AWS regions`, authn.Developer, nil},
+		{"aws_get_regional_availability", `{"regions":["..."],"resource_type":"...","filters":["..."]} service availability by region`, authn.Developer, nil},
 		{"search_audit", `{"actor":"optional","action":"optional prefix, e.g. cloud.","limit":"optional, up to 50"} audit entries (administrators only)`, authn.Admin, (*Server).lookupAudit},
 	}
 }
 
-func lookupHelp(role authn.Role) string {
+// needsMCP marks the tools that exist only when the AWS MCP Server is turned on.
+func needsMCP(name string) bool {
+	return name == "aws_script" || name == "propose_aws_change" || strings.HasPrefix(name, "aws_") && name != "aws_summary"
+}
+
+func (s *Server) lookupHelp(ctx context.Context, role authn.Role) string {
+	mcpOn := s.loadAWSMCP(ctx).Enabled
 	var b strings.Builder
 	for _, t := range assistantLookups() {
+		if needsMCP(t.name) && !mcpOn || t.name == "call_aws" && mcpOn {
+			continue // one way to reach AWS at a time: the MCP server when it is on, the CLI otherwise
+		}
 		if role.AtLeast(t.min) {
 			fmt.Fprintf(&b, "- %s %s\n", t.name, t.help)
 		}
@@ -92,6 +108,15 @@ func (s *Server) runLookup(ctx context.Context, p Principal, c lookupCall) (stri
 		}
 		if !p.Role.AtLeast(t.min) {
 			return "", fmt.Errorf("%s is not available to your role", t.name)
+		}
+		if needsMCP(t.name) && !s.loadAWSMCP(ctx).Enabled {
+			return "", fmt.Errorf("%s needs the AWS MCP Server, which is not turned on", t.name)
+		}
+		if t.name == "call_aws" && s.loadAWSMCP(ctx).Enabled {
+			return "", errors.New("call_aws is off while the AWS MCP Server is on; use aws_script")
+		}
+		if t.run == nil {
+			t.run = s.lookupAWSDoc(t.name)
 		}
 		if len(c.Args) == 0 {
 			c.Args = json.RawMessage(`{}`)

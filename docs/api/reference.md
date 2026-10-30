@@ -85,6 +85,8 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | --- | --- | --- |
 | `GET /v1/integrations/aws` | developer | Settings and identity. |
 | `PUT /v1/integrations/aws` | admin | Use a server profile. Body: `enabled`, `profile`, `region`. The name `forgeline-sso` is reserved. |
+| `GET /v1/integrations/aws/mcp` | admin | Whether the AWS MCP Server is on, the tools it offers, and the proxy and endpoint used. |
+| `PUT /v1/integrations/aws/mcp` | admin | Body: `enabled`. Turning it on starts the signing proxy and checks the server offers `aws___run_script`. |
 | `POST /v1/integrations/aws/sso/start` | admin | Body: `start_url`, `sso_region`. Returns `login_id`, the `user_code` and the link to approve. |
 | `POST /v1/integrations/aws/sso/poll` | admin | Body: `login_id`. Never blocks; returns `status`: `pending`, `expired`, `denied`, or `authorized` once approved. |
 | `GET /v1/integrations/aws/sso/accounts` | admin | Accounts you may use. |
@@ -130,7 +132,12 @@ Only repositories on the GitHub allow list. A workflow can only be started on a 
 | `GET /v1/assistant` | developer | Whether it is on, and which backend. |
 | `PUT /v1/integrations/assistant` | admin | Body: `backend` (`off`, `api`, `claude-token`, `cli`), `model`, `api_base`, `api_key` and `claude_token` (both write-only; the token is stored as the secret `CLAUDE_CODE_OAUTH_TOKEN`). |
 | `POST /v1/integrations/assistant/test` | admin | Ask it something small to check the setup. |
-| `POST /v1/assistant/chat` | developer | Body: `message`, `history`, `context` (the page: run, pipeline, infra or overview). Returns `reply`. 20 a minute per person. |
+| `GET /v1/ai/proposals` | viewer | Changes the assistant drafted, newest first, with their status. |
+| `GET /v1/ai/proposals/{id}` | viewer | One proposal: the exact script, the AWS calls it makes, risk, and (after approval) what ran. |
+| `POST /v1/ai/proposals/{id}/approve` | admin | Body: `hash` (of the text you read), `note`. Not allowed for the person who proposed it. Applies the approved script through the AWS MCP Server and returns 202; poll the proposal. |
+| `POST /v1/ai/proposals/{id}/reject` | admin | Rejects a waiting proposal. |
+| `POST /v1/ai/proposals/{id}/cancel` | developer | The proposer or an administrator withdraws a waiting proposal. |
+| `POST /v1/assistant/chat` | developer | Body: `message`, `history`, `context` (the page: run, pipeline, infra or overview). Returns `reply`, the read-only `lookups` it ran and any `proposals` it filed. 20 a minute per person. |
 
 ## The pipeline schema
 

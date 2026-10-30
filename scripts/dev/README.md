@@ -54,3 +54,19 @@ In the console open Infrastructure → AWS account → Connect, enter any `https
 address, and open the link the page shows (it is served by this script) to approve. Then pick one
 of the two demo accounts. The server refuses `FORGELINE_DEV_SSO_BASE` unless it is a loopback
 address. Role credentials are fake, so use it together with `fake-aws`.
+
+## `fake-aws-mcp`: a stand-in for the AWS MCP Server's signing proxy
+
+Speaks MCP over stdio like `uvx mcp-proxy-for-aws`, offers the same tool names, and answers
+`aws___run_script` for a few ECS, EC2 and STS calls (an ECS cluster `payments` with services `web`
+and `worker`). An `UpdateService` with `desiredCount` is remembered in `$FAKE_AWS_MCP_STATE`.
+Start the server with it in place of the real proxy (the real AWS CLI stand-in `fake-aws` is still
+needed for the AWS connection test):
+
+```sh
+PATH=/tmp/fake-aws/bin:$PATH FAKE_AWS_STATE=/tmp/fake-aws/state.json \
+  FORGELINE_AWS_MCP_PROXY="python3 $PWD/scripts/dev/fake-aws-mcp" \
+  FORGELINE_TOKEN=a-long-dev-token-123456 ./bin/forgeline server --listen 127.0.0.1:8085 --data-dir /tmp/fl-mcp
+```
+
+In the console connect AWS (empty profile, any region), then Infrastructure → AWS → AWS MCP Server → Turn on.
