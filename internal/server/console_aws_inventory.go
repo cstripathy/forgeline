@@ -82,15 +82,16 @@ type invSpec struct {
 	id, label, category string
 	global              bool
 	args                []string
-	list                string      // key holding the array; "" when the answer is the array
-	sub                 string      // key of an array nested in each item (EC2 reservations)
-	strs                bool        // the array holds plain strings
-	idPath, namePath    string      // dotted paths into an item
-	statePath, created  string      //
-	arnPath             string      //
-	nameFromID          bool        // name is the last segment of the id/ARN
-	nameTag             bool        // name comes from the Name tag when namePath is empty
-	fields              [][2]string // label, dotted path
+	list                string                                   // key holding the array; "" when the answer is the array
+	sub                 string                                   // key of an array nested in each item (EC2 reservations)
+	strs                bool                                     // the array holds plain strings
+	idPath, namePath    string                                   // dotted paths into an item
+	statePath, created  string                                   //
+	arnPath             string                                   //
+	nameFromID          bool                                     // name is the last segment of the id/ARN
+	nameTag             bool                                     // name comes from the Name tag when namePath is empty
+	fields              [][2]string                              // label, dotted path
+	derive              func(item map[string]any) []AWSFieldJSON // extra fields computed from the raw item
 	custom              func(ctx context.Context, s *Server, st awsSettings) ([]AWSServiceJSON, error)
 }
 
@@ -116,12 +117,12 @@ func inventorySpecs() []invSpec {
 			fields: [][2]string{{"URI", "repositoryUri"}, {"Tag mutability", "imageTagMutability"}, {"Scan on push", "imageScanningConfiguration.scanOnPush"}}},
 		{id: "rds", label: "RDS databases", category: "Databases", args: []string{"rds", "describe-db-instances"}, list: "DBInstances",
 			idPath: "DBInstanceIdentifier", namePath: "DBInstanceIdentifier", arnPath: "DBInstanceArn", statePath: "DBInstanceStatus", created: "InstanceCreateTime",
-			fields: [][2]string{{"Engine", "Engine"}, {"Version", "EngineVersion"}, {"Class", "DBInstanceClass"}, {"Storage (GiB)", "AllocatedStorage"}, {"Multi-AZ", "MultiAZ"}, {"Publicly accessible", "PubliclyAccessible"}}},
+			fields: [][2]string{{"Engine", "Engine"}, {"Version", "EngineVersion"}, {"Class", "DBInstanceClass"}, {"Storage (GiB)", "AllocatedStorage"}, {"Multi-AZ", "MultiAZ"}, {"Publicly accessible", "PubliclyAccessible"}, {"Encrypted", "StorageEncrypted"}}},
 		{id: "dynamodb", label: "DynamoDB tables", category: "Databases", args: []string{"dynamodb", "list-tables"}, list: "TableNames", strs: true},
 		{id: "vpc", label: "VPCs", category: "Network", args: []string{"ec2", "describe-vpcs"}, list: "Vpcs",
 			idPath: "VpcId", statePath: "State", nameTag: true, fields: [][2]string{{"CIDR", "CidrBlock"}, {"Default", "IsDefault"}}},
 		{id: "sg", label: "Security groups", category: "Network", args: []string{"ec2", "describe-security-groups"}, list: "SecurityGroups",
-			idPath: "GroupId", namePath: "GroupName", fields: [][2]string{{"VPC", "VpcId"}, {"Description", "Description"}}},
+			idPath: "GroupId", namePath: "GroupName", fields: [][2]string{{"VPC", "VpcId"}, {"Description", "Description"}}, derive: openToInternet},
 		{id: "elb", label: "Load balancers", category: "Network", args: []string{"elbv2", "describe-load-balancers"}, list: "LoadBalancers",
 			idPath: "LoadBalancerName", namePath: "LoadBalancerName", arnPath: "LoadBalancerArn", statePath: "State.Code", created: "CreatedTime",
 			fields: [][2]string{{"Type", "Type"}, {"Scheme", "Scheme"}, {"DNS", "DNSName"}, {"VPC", "VpcId"}}},
@@ -373,6 +374,9 @@ func parseInventory(sp invSpec, raw []byte) ([]AWSResourceJSON, error) {
 				r.Fields = append(r.Fields, AWSFieldJSON{Label: f[0], Value: v})
 			}
 		}
+		if sp.derive != nil {
+			r.Fields = append(r.Fields, sp.derive(m)...)
+		}
 		if r.ID == "" {
 			continue
 		}
@@ -567,4 +571,47 @@ func shortTaskDef(f []AWSFieldJSON) []AWSFieldJSON {
 		}
 	}
 	return f
+}
+
+// openToInternet lists what a security group lets in from anywhere (0.0.0.0/0 or ::/0), as
+// "tcp 22; tcp 3389; all traffic". The guard reads it; people see it in the explorer.
+func openToInternet(item map[string]any) []AWSFieldJSON {
+	perms, _ := item["IpPermissions"].([]any)
+	var open []string
+	for _, p := range perms {
+		pm, _ := p.(map[string]any)
+		world := false
+		for _, key := range []string{"IpRanges", "Ipv6Ranges"} {
+			rs, _ := pm[key].([]any)
+			for _, r := range rs {
+				rm, _ := r.(map[string]any)
+				if cidr, _ := rm["CidrIp"].(string); cidr == "0.0.0.0/0" {
+					world = true
+				}
+				if cidr, _ := rm["CidrIpv6"].(string); cidr == "::/0" {
+					world = true
+				}
+			}
+		}
+		if !world {
+			continue
+		}
+		proto, _ := pm["IpProtocol"].(string)
+		from, hasFrom := pm["FromPort"].(float64)
+		to, _ := pm["ToPort"].(float64)
+		switch {
+		case proto == "-1":
+			open = append(open, "all traffic")
+		case hasFrom && from == to:
+			open = append(open, fmt.Sprintf("%s %d", proto, int(from)))
+		case hasFrom:
+			open = append(open, fmt.Sprintf("%s %d-%d", proto, int(from), int(to)))
+		default:
+			open = append(open, proto)
+		}
+	}
+	if len(open) == 0 {
+		return nil
+	}
+	return []AWSFieldJSON{{Label: "Open to the internet", Value: strings.Join(open, "; ")}}
 }

@@ -1,6 +1,6 @@
 # 017: accounts, agents, workflows, environments, guard, marketplace
 
-Status: slices 1 (accounts), 2 (skills and agents, with versions) and 3 (workflows) built; the rest planned. Builds on 013 (AI use cases), 014 (missions
+Status: slices 1 (accounts), 2 (skills and agents, with versions) 3 (workflows) and 4 (guard) built; the rest planned. Builds on 013 (AI use cases), 014 (missions
 and autonomy tiers), 015 and 016 (AWS access and the AWS MCP Server).
 
 ## The one rule everything keeps
@@ -17,7 +17,7 @@ propose. None of them gets a new way to write. This is what lets us hand people 
 | 1 | **Multiple AWS accounts** (built) | Register accounts by profile, switch between them in the console, explorer and spend per account, the assistant can read any of them | none |
 | 2 | **Skills and agents** (built) | A skill is a named, versioned procedure (markdown steps plus the read tools it may use). An agent is instructions plus skills plus a tool allowlist and an autonomy tier. The assistant can hand a task to an agent, and a person can talk to an agent directly | 1 |
 | 3 | **Workflows** (built) | Agents and steps in order or in parallel, with approval gates, started by hand, on a schedule, or when a run fails. Output is a report or proposals | 2 |
-| 4 | **Guard** | Scheduled read-only security reviews per account (public buckets, open security groups, unencrypted volumes, idle resources, stale users), findings with severity and history, exceptions with an expiry, a pipeline guard (unpinned actions, secrets in logs) | 1, 3 |
+| 4 | **Guard** (built) | Scheduled read-only security reviews per account (public buckets, open security groups, unencrypted volumes, idle resources, stale users), findings with severity and history, exceptions with an expiry, a pipeline guard (unpinned actions, secrets in logs) | 1, 3 |
 | 5 | **Kubernetes** | Register clusters (kubeconfig or EKS), explorer for namespaces, workloads, pods and events, change proposals as a server-side dry-run diff, same approval | 1 |
 | 6 | **Environments** | Temporary infrastructure and dev boxes for developers and QA from templates: owner, time to live, cost cap, auto-destroy, request then approve (or pre-approved class for small ones) | 1, 5 |
 | 7 | **Marketplace** | Catalogue of agents, skills, workflow and environment templates, and plugins. Install shows the permissions it asks for. Versions pinned by hash. Plugins are MCP servers run in a container, never in the server process | 2, 3 |
@@ -52,6 +52,17 @@ a gate leaves it `waiting` and a restart keeps it waiting, while a run that was 
 with "server restarted". One run per workflow at a time. Cancel always wins over a step that
 finishes later. Not built: triggers other than manual and interval (for example, when a pipeline
 run fails), parallel stages, and conditions between stages.
+
+## Slice 4: what was built
+
+Guard is deterministic on purpose: rules run over the explorer's inventory plus S3 public-access
+settings and the IAM credential report, so a scan is fast, free and repeatable, and a finding means the
+same thing every time. The AI part reads and explains them (`guard_findings`) rather than deciding
+what is a problem. Findings reconcile per source: each explorer service, plus `s3-access` and `iam`,
+has its own "was it readable" flag, so a denied read leaves its findings open. Not built: GuardDuty,
+Security Hub and CloudTrail signals, drift against a stack template, a pipeline guard (unpinned
+actions, secrets in logs), Kubernetes checks, and turning a finding into a fix proposal in one click
+(many fixes, such as revoking a rule, are outside what proposals may do).
 
 ## Slice 2 sketch (so slice 1 does not paint us into a corner)
 

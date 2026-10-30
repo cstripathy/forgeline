@@ -106,6 +106,12 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | `GET /v1/ai/workflow-runs/{id}` | developer | One run with each step's output. |
 | `POST /v1/ai/workflow-runs/{id}/release` | admin | Let a run waiting at a gate start its next stage. |
 | `POST /v1/ai/workflow-runs/{id}/cancel` | developer | Cancel a run (its starter, or an administrator). |
+| `GET /v1/guard/findings` | viewer | Guard findings (`?status=open|resolved`, `?account=`, `?severity=`) with severity counts and any accepted exception. |
+| `GET /v1/guard/scans` | viewer | Recent scans and the automatic scan interval. |
+| `POST /v1/guard/scan` | developer | Start a scan of every account (or `account`); read-only; one at a time. |
+| `PUT /v1/guard/settings` | admin | Automatic scans every 6, 12, 24 or 168 hours, or 0 for off. |
+| `POST /v1/guard/findings/{id}/accept` | admin | Accept a finding for 1 to 90 days with a reason; it reopens when that ends. |
+| `DELETE /v1/guard/findings/{id}/accept` | admin | End an acceptance early. |
 | `GET /v1/ai/tools` | developer | The tools an agent can be given, with the role each needs. |
 | `GET /v1/ai/skills` | developer | Skills (name, description, current version). |
 | `GET /v1/ai/skills/{id}` | developer | One skill with every version. |

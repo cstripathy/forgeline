@@ -829,6 +829,7 @@ func (s *Server) startWorkflows(ctx context.Context) {
 			s.finishRun(&run, wfFailed, "server restarted")
 		}
 	}
+	s.failInterruptedScans(ctx)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -840,6 +841,7 @@ func (s *Server) startWorkflows(ctx context.Context) {
 				return
 			case now := <-t.C:
 				s.scheduleTick(ctx, now)
+				s.guardTick(ctx, now)
 			}
 		}
 	}()
