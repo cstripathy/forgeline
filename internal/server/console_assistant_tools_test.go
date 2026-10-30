@@ -21,6 +21,7 @@ type scriptedLLM struct {
 	mu      sync.Mutex
 	replies []string
 	reqs    []map[string]any
+	block   chan struct{} // when set, a reply waits until it is closed
 }
 
 func newScriptedLLM(t *testing.T, replies ...string) *scriptedLLM {
@@ -36,7 +37,11 @@ func newScriptedLLM(t *testing.T, replies ...string) *scriptedLLM {
 			i = len(f.replies) - 1
 		}
 		text := f.replies[i]
+		blk := f.block
 		f.mu.Unlock()
+		if blk != nil {
+			<-blk
+		}
 		json.NewEncoder(w).Encode(map[string]any{"content": []map[string]string{{"type": "text", "text": text}}})
 	}))
 	t.Cleanup(f.srv.Close)

@@ -34,9 +34,9 @@ Routes live under `/v1`. Within `/v1` we add routes and optional fields but do n
 the meaning of existing ones. A breaking change would be `/v2` served alongside `/v1` for at least
 one MINOR release. `docs/api/reference.md` lists every route and a test fails if one is missing.
 
-## Skills and agents
+## Skills, agents and workflows
 
-Each skill and agent keeps every version it has ever had:
+Each skill, agent and workflow keeps every version it has ever had:
 
 - A save creates the next version. Old versions are never edited.
 - Each version has a fingerprint (a SHA-256 of its content), who saved it, when, and a note.
@@ -44,6 +44,7 @@ Each skill and agent keeps every version it has ever had:
   same way later even after a skill changes. The agent page shows when a newer skill version exists;
   saving a new agent version takes it.
 - **Rollback** saves a copy of an old version as the newest one, so the history only grows.
+- A workflow version pins the exact agent version of each step, so an agent change never alters a saved workflow until someone saves a new version of it.
 - A run records which agent version and fingerprint answered, in the audit log and the reply.
 - An agent version cannot gain a tool or a higher tier without a new saved version, which is audited.
 

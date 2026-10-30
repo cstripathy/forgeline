@@ -88,3 +88,16 @@ tools, every one of them runs as the person asking, and an agent cannot call ano
 
 ![An agent with a pinned skill, its tools and its version history](46-agent.png)
 
+### Workflows
+
+Agents page → Workflows. A workflow is stages run in order; the steps in one stage run at the same
+time, and each step is an agent doing one task at the version that was current when the workflow
+was saved. A stage can be gated: the run stops there until an administrator releases it. A workflow
+runs when someone starts it or on a schedule (every 15 minutes to every week), as viewer or
+developer and never as an administrator, because nobody is watching. Each stage's findings are
+handed to the next as data. Runs are saved after every stage, so a run waiting at a gate survives a
+restart; a run that was mid-stage when the server stopped is marked failed. Anything a step proposes
+is an ordinary proposal for a different administrator to approve.
+
+![A run paused at a gate, with the first stage's findings](47-workflow-run.png)
+

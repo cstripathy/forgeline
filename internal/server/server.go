@@ -99,6 +99,7 @@ type Server struct {
 	run      cmdRunner // runs docker and aws; replaced in tests
 	awsCache awsCache
 	awsInv   invCache
+	wf       wfEngine
 
 	ghApp     ghAppRegistry // GitHub App setups waiting for GitHub
 	ghTokens  sync.Map      // "appID/installationID" -> *ghTokenCache
@@ -229,6 +230,7 @@ func (s *Server) Start(ctx context.Context) error {
 	for _, r := range interrupted {
 		s.reportFinished(r, store.RunFailed, "server restarted")
 	}
+	s.startWorkflows(ctx)
 	for i := 0; i < s.cfg.MaxRuns; i++ {
 		s.wg.Add(1)
 		go func() {

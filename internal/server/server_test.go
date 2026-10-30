@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -768,5 +769,35 @@ func TestConsoleScriptsNeverUseMarkupInjection(t *testing.T) {
 	})
 	if len(bad) > 0 {
 		t.Fatalf("markup injection or CSP-breaking calls in the console:\n%s", strings.Join(bad, "\n"))
+	}
+}
+
+// A syntax error in any console module blanks the whole console, and nothing else would notice it
+// before a browser did. Skipped where Node is not installed.
+func TestConsoleModulesParse(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	tmp := t.TempDir()
+	err = fs.WalkDir(uiFiles, "ui", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".js") {
+			return err
+		}
+		src, rerr := uiFiles.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		file := filepath.Join(tmp, strings.ReplaceAll(path, "/", "_")+".mjs") // .mjs: parsed as a module, as the browser does
+		if werr := os.WriteFile(file, src, 0o600); werr != nil {
+			return werr
+		}
+		if out, cerr := exec.Command(node, "--check", file).CombinedOutput(); cerr != nil {
+			t.Errorf("%s does not parse:\n%s", path, out)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

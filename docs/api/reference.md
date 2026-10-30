@@ -94,6 +94,18 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | `POST /v1/integrations/aws/sso/connect` | admin | Body: `account_id`, `account_name`, `role_name`, `region`. Tests the credentials before keeping them. |
 | `GET /v1/integrations/aws/sso` | developer | Whether you are signed in, and until when. |
 | `DELETE /v1/integrations/aws/sso` | admin | Sign out and delete the stored token. |
+| `GET /v1/ai/workflows` | developer | Workflows: stages, steps, schedule, run-as role. |
+| `GET /v1/ai/workflows/{id}` | developer | One workflow with every version. |
+| `POST /v1/ai/workflows` | admin | Create a workflow (version 1): stages of agent steps, optional gate per stage, optional schedule, run-as viewer or developer. |
+| `POST /v1/ai/workflows/{id}/versions` | admin | Save a new version; agent versions are pinned. |
+| `POST /v1/ai/workflows/{id}/rollback` | admin | Copy an old version forward as the current one. |
+| `POST /v1/ai/workflows/{id}/disable` | admin | Stop it running, including its schedule. |
+| `POST /v1/ai/workflows/{id}/enable` | admin | Turn it back on. |
+| `POST /v1/ai/workflows/{id}/run` | developer | Start a run now (one at a time per workflow). |
+| `GET /v1/ai/workflow-runs` | developer | Recent runs (`?workflow=`). |
+| `GET /v1/ai/workflow-runs/{id}` | developer | One run with each step's output. |
+| `POST /v1/ai/workflow-runs/{id}/release` | admin | Let a run waiting at a gate start its next stage. |
+| `POST /v1/ai/workflow-runs/{id}/cancel` | developer | Cancel a run (its starter, or an administrator). |
 | `GET /v1/ai/tools` | developer | The tools an agent can be given, with the role each needs. |
 | `GET /v1/ai/skills` | developer | Skills (name, description, current version). |
 | `GET /v1/ai/skills/{id}` | developer | One skill with every version. |

@@ -2,6 +2,7 @@ import { h, icon, mount, clear, pageHeader, relTime, absTime, emptyState, spinne
 import { get, post, del, atLeast } from '../lib/api.js';
 import { navigate } from '../lib/router.js';
 import { session } from '../app.js';
+import { workflowList, workflowForm } from './workflows.js';
 
 // Agents and skills. Every save is a new version; old versions are never edited, and a rollback is
 // a copy of an old version saved as the newest one.
@@ -47,13 +48,13 @@ function versionTable(versions, current, selected, onPick, onRollback) {
 // ------------------------------------------------------------------ list
 
 export async function agentsPage({ query }) {
-  const tab = query.tab === 'skills' ? 'skills' : 'agents';
+  const tab = query.tab === 'skills' ? 'skills' : query.tab === 'workflows' ? 'workflows' : 'agents';
   const admin = atLeast(session.role, 'admin');
   const el = h('div', {});
-  let agents, skills, tools;
-  try { [agents, skills, tools] = await Promise.all([get('/v1/ai/agents'), get('/v1/ai/skills'), get('/v1/ai/tools')]); } catch (e) { return mount(el, errorBox(e.message)); }
+  let agents, skills, tools, workflows;
+  try { [agents, skills, tools, workflows] = await Promise.all([get('/v1/ai/agents'), get('/v1/ai/skills'), get('/v1/ai/tools'), get('/v1/ai/workflows')]); } catch (e) { return mount(el, errorBox(e.message)); }
 
-  const tabBtn = (id, label) => h('a', { href: '#/agents' + (id === 'skills' ? '?tab=skills' : ''), role: 'tab', 'aria-selected': String(tab === id), id: 'tab-' + id,
+  const tabBtn = (id, label) => h('a', { href: '#/agents' + (id === 'agents' ? '' : '?tab=' + id), role: 'tab', 'aria-selected': String(tab === id), id: 'tab-' + id,
     class: 'rounded-lg px-3 py-1.5 text-sm font-medium ' + (tab === id ? 'bg-brand-50 text-brand-700 dark:bg-brand-950/40 dark:text-brand-200' : 'muted hover:bg-slate-100 dark:hover:bg-slate-800') }, label);
 
   const agentCards = agents.agents.length ? h('div', { class: 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3' }, agents.agents.map(a =>
@@ -70,9 +71,10 @@ export async function agentsPage({ query }) {
 
   mount(el, pageHeader('Agents', 'Named workers with instructions, skills and a short list of tools. Each save is a new version you can read back and roll back to.',
     admin && (tab === 'agents' ? h('button', { class: 'btn-primary', id: 'new-agent', type: 'button', onclick: () => agentForm(null, skills.skills, tools.tools) }, icon('plus', 'size-4'), 'New agent')
-      : h('button', { class: 'btn-primary', id: 'new-skill', type: 'button', onclick: () => skillForm(null) }, icon('plus', 'size-4'), 'New skill'))),
-    h('div', { class: 'mb-4 flex gap-1', role: 'tablist' }, tabBtn('agents', 'Agents (' + agents.agents.length + ')'), tabBtn('skills', 'Skills (' + skills.skills.length + ')')),
-    tab === 'agents' ? agentCards : skillRows);
+      : tab === 'skills' ? h('button', { class: 'btn-primary', id: 'new-skill', type: 'button', onclick: () => skillForm(null) }, icon('plus', 'size-4'), 'New skill')
+      : h('button', { class: 'btn-primary', id: 'new-workflow', type: 'button', onclick: () => workflowForm(null, agents.agents) }, icon('plus', 'size-4'), 'New workflow'))),
+    h('div', { class: 'mb-4 flex gap-1', role: 'tablist' }, tabBtn('agents', 'Agents (' + agents.agents.length + ')'), tabBtn('skills', 'Skills (' + skills.skills.length + ')'), tabBtn('workflows', 'Workflows (' + workflows.workflows.length + ')')),
+    tab === 'agents' ? agentCards : tab === 'skills' ? skillRows : workflowList(workflows.workflows, admin));
   return el;
 }
 
