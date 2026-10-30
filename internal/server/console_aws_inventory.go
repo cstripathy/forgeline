@@ -192,9 +192,15 @@ func (s *Server) lookupAWSResources(ctx context.Context, raw json.RawMessage) (s
 	if d.Error != "" {
 		return "", errors.New(d.Error)
 	}
-	want := strings.ToLower(strings.TrimSpace(a.Service))
+	return formatInventory(fmt.Sprintf("Account %s (id %q), region %s, read %s. Counts include every resource; names are listed up to %d per service.", d.Account, a.Account, d.Region, d.FetchedAt, inventoryMax), d, a.Service)
+}
+
+// formatInventory renders an inventory as compact text for the assistant and agents. A service filter
+// narrows it by id or label.
+func formatInventory(header string, d AWSInventoryJSON, service string) (string, error) {
+	want := strings.ToLower(strings.TrimSpace(service))
 	var b strings.Builder
-	fmt.Fprintf(&b, "Account %s (id %q), region %s, read %s. Counts include every resource; names are listed up to %d per service.\n", d.Account, a.Account, d.Region, d.FetchedAt, inventoryMax)
+	b.WriteString(header + "\n")
 	shown := 0
 	for _, svc := range d.Services {
 		if want != "" && !strings.Contains(strings.ToLower(svc.ID), want) && !strings.Contains(strings.ToLower(svc.Label), want) {
@@ -228,7 +234,7 @@ func (s *Server) lookupAWSResources(ctx context.Context, raw json.RawMessage) (s
 		}
 	}
 	if shown == 0 {
-		return "", fmt.Errorf("no service matches %q; leave service out to see them all", a.Service)
+		return "", fmt.Errorf("no service matches %q; leave service out to see them all", service)
 	}
 	return b.String(), nil
 }
