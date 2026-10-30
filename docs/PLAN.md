@@ -304,6 +304,8 @@ Design: [docs/design/006-console.md](design/006-console.md). Pictures: [docs/con
 
 ## Next steps (in order)
 
+> Agentic missions (discover, propose, approve, apply, verify; ECS to IaC, CI/CD and canary as the worked example) are in `docs/design/014-agentic-missions.md`. AI use cases and how Claude can reach our infrastructure safely are in `docs/design/013-ai-use-cases.md`. Market research (2026-10-30) is in `docs/design/012-market-research.md`: pain points, enterprise gaps, integrations, a UI plan and a ranked backlog of 16 items. Pick from its ranking once the items below that need a real-service check are done or blocked.
+
 Do these top to bottom. Items marked **needs a decision** must wait for the maintainer; ask once,
 with a recommendation, and do something else meanwhile.
 
