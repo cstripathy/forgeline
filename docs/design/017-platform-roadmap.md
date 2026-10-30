@@ -1,6 +1,6 @@
 # 017: accounts, agents, workflows, environments, guard, marketplace
 
-Status: slices 1 (accounts) and 2 (skills and agents, with versions) built; the rest planned. Builds on 013 (AI use cases), 014 (missions
+Status: slices 1 (accounts), 2 (skills and agents, with versions) and 3 (workflows) built; the rest planned. Builds on 013 (AI use cases), 014 (missions
 and autonomy tiers), 015 and 016 (AWS access and the AWS MCP Server).
 
 ## The one rule everything keeps
@@ -16,7 +16,7 @@ propose. None of them gets a new way to write. This is what lets us hand people 
 |---|-------|------------------|------------|
 | 1 | **Multiple AWS accounts** (built) | Register accounts by profile, switch between them in the console, explorer and spend per account, the assistant can read any of them | none |
 | 2 | **Skills and agents** (built) | A skill is a named, versioned procedure (markdown steps plus the read tools it may use). An agent is instructions plus skills plus a tool allowlist and an autonomy tier. The assistant can hand a task to an agent, and a person can talk to an agent directly | 1 |
-| 3 | **Workflows** | Agents and steps in order or in parallel, with approval gates, started by hand, on a schedule, or when a run fails. Output is a report or proposals | 2 |
+| 3 | **Workflows** (built) | Agents and steps in order or in parallel, with approval gates, started by hand, on a schedule, or when a run fails. Output is a report or proposals | 2 |
 | 4 | **Guard** | Scheduled read-only security reviews per account (public buckets, open security groups, unencrypted volumes, idle resources, stale users), findings with severity and history, exceptions with an expiry, a pipeline guard (unpinned actions, secrets in logs) | 1, 3 |
 | 5 | **Kubernetes** | Register clusters (kubeconfig or EKS), explorer for namespaces, workloads, pods and events, change proposals as a server-side dry-run diff, same approval | 1 |
 | 6 | **Environments** | Temporary infrastructure and dev boxes for developers and QA from templates: owner, time to live, cost cap, auto-destroy, request then approve (or pre-approved class for small ones) | 1, 5 |
@@ -43,6 +43,15 @@ version pins exact skill versions and holds a tool allowlist and a tier; running
 assistant (its prompt gets the instructions and skills, its lookups are cut to the allowlist) and
 never widens it. Rollback copies forward. `ask_agent` lets the assistant delegate one level deep.
 See `docs/guides/versioning.md` for the rules. The sketch below is the shape it started from.
+
+## Slice 3: what was built
+
+A workflow version is stages of agent steps with pinned agent versions, an optional gate per stage,
+an optional interval, and a run-as role of viewer or developer. A run is saved after every stage;
+a gate leaves it `waiting` and a restart keeps it waiting, while a run that was mid-stage fails
+with "server restarted". One run per workflow at a time. Cancel always wins over a step that
+finishes later. Not built: triggers other than manual and interval (for example, when a pipeline
+run fails), parallel stages, and conditions between stages.
 
 ## Slice 2 sketch (so slice 1 does not paint us into a corner)
 
