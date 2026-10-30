@@ -45,6 +45,7 @@ func assistantLookups() []lookupTool {
 		{"list_pipelines", `{} saved pipelines with their ids`, authn.Viewer, (*Server).lookupListPipelines},
 		{"get_pipeline", `{"id":"pipeline id"} one saved pipeline file`, authn.Viewer, (*Server).lookupGetPipeline},
 		{"aws_accounts", `{} the AWS accounts that are connected, with their ids`, authn.Viewer, (*Server).lookupAWSAccounts},
+		{"aws_resources", `{"account":"optional account id","service":"optional, e.g. ecs, ec2, s3, lambda, rds"} everything in the account by service with state and key details: ECS clusters and services, EC2, EBS, Lambda, S3, RDS, DynamoDB, VPCs, load balancers, queues, log groups`, authn.Viewer, (*Server).lookupAWSResources},
 		{"aws_summary", `{"account":"optional account id from aws_accounts"} the AWS account summary: stacks and instances`, authn.Viewer, (*Server).lookupAWS},
 		{"call_aws", `{"cli_command":"aws ecs list-clusters --region ap-south-1","account":"optional account id from aws_accounts"} one read-only AWS CLI call (describe-, list-, get- only; no secrets, credentials, data or logs). Administrators only`, authn.Admin, (*Server).lookupCallAWS},
 		{"aws_script", `{"code":"r = await call_boto3(service_name='ecs', operation_name='ListClusters', region_name='ap-south-1', params={})\nresult = r\nresult"} read-only AWS API calls through the AWS MCP Server; every call_boto3 must name its service and operation in quotes, and only Describe, List and Get operations run. Administrators only`, authn.Admin, (*Server).lookupAWSScript},
@@ -54,19 +55,24 @@ func assistantLookups() []lookupTool {
 		{"aws_retrieve_skill", `{"skill_name":"...","file":"optional"} load an AWS procedure`, authn.Developer, nil},
 		{"aws_list_regions", `{} list AWS regions`, authn.Developer, nil},
 		{"aws_get_regional_availability", `{"regions":["..."],"resource_type":"...","filters":["..."]} service availability by region`, authn.Developer, nil},
+		{"list_agents", `{} the agents an administrator has set up, with their ids`, authn.Developer, (*Server).lookupListAgents},
+		{"ask_agent", `{"agent":"agent id from list_agents","task":"what you want it to do"} hand a task to an agent and get its answer. It uses only its own tools, as you`, authn.Developer, (*Server).lookupAskAgent},
 		{"search_audit", `{"actor":"optional","action":"optional prefix, e.g. cloud.","limit":"optional, up to 50"} audit entries (administrators only)`, authn.Admin, (*Server).lookupAudit},
 	}
 }
 
 // needsMCP marks the tools that exist only when the AWS MCP Server is turned on.
 func needsMCP(name string) bool {
-	return name == "aws_script" || name == "propose_aws_change" || strings.HasPrefix(name, "aws_") && name != "aws_summary" && name != "aws_accounts"
+	return name == "aws_script" || name == "propose_aws_change" || strings.HasPrefix(name, "aws_") && name != "aws_summary" && name != "aws_accounts" && name != "aws_resources"
 }
 
 func (s *Server) lookupHelp(ctx context.Context, role authn.Role) string {
 	mcpOn := s.loadAWSMCP(ctx).Enabled
 	var b strings.Builder
 	for _, t := range assistantLookups() {
+		if sc := scopeFrom(ctx); sc != nil && (!sc.allows(t.name) || t.name == askAgentTool) {
+			continue // a running agent sees only its own tools, and never other agents
+		}
 		if needsMCP(t.name) && !mcpOn || t.name == "call_aws" && mcpOn && !s.hasAddedAccounts(ctx) {
 			continue // one way to reach the primary account at a time: the MCP server when it is on, the CLI otherwise
 		}
@@ -109,6 +115,9 @@ func (s *Server) runLookup(ctx context.Context, p Principal, c lookupCall) (stri
 		}
 		if !p.Role.AtLeast(t.min) {
 			return "", fmt.Errorf("%s is not available to your role", t.name)
+		}
+		if sc := scopeFrom(ctx); !sc.allows(t.name) || sc != nil && t.name == askAgentTool {
+			return "", fmt.Errorf("%s is not one of this agent's tools", t.name)
 		}
 		if needsMCP(t.name) && !s.loadAWSMCP(ctx).Enabled {
 			return "", fmt.Errorf("%s needs the AWS MCP Server, which is not turned on", t.name)

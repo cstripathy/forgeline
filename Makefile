@@ -1,7 +1,10 @@
 .PHONY: build test vet ci clean run-local css css-check
 
+# The version is stamped from the nearest tag (v1.2.3, or v1.2.3-4-gabc123 between tags).
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.0.0-dev)
+
 build:
-	go build -o bin/forgeline ./cmd/forgeline
+	go build -ldflags "-X github.com/forgelinehq/forgeline/internal/version.Version=$(VERSION)" -o bin/forgeline ./cmd/forgeline
 
 test:
 	go test -race ./...

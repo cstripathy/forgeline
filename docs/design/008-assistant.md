@@ -68,3 +68,5 @@ real `claude` through the `claude-token` backend: it listed runs, found a failin
 its log.
 
 With more than one AWS account connected (note 017) the assistant first calls `aws_accounts`, then passes an `account` id to `aws_summary` or `call_aws`. `call_aws` stays off for the primary account while the AWS MCP Server is on, but works for added accounts because the MCP server only serves the primary one.
+
+New lookups (notes 017): `aws_resources` (the explorer's view of an account, shared with its cache), `list_agents` and `ask_agent`. While an agent runs, the lookup list is cut to the agent's own tools, `ask_agent` is never offered, and each lookup is still checked against the asking person's role.

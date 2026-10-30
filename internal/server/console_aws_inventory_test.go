@@ -309,3 +309,36 @@ func TestInventoryEmptyServiceHasAnEmptyListNotNull(t *testing.T) {
 		t.Errorf("empty service should encode resources as [], got %s", b)
 	}
 }
+
+func TestAWSResourcesLookupShowsTheExplorerViewAndSharesItsCache(t *testing.T) {
+	m := newMCPHarness(t)
+	stub := &awsStub{}
+	m.srv.run = stub.run
+	m.admin.expect(200, "PUT", "/v1/integrations/aws", map[string]any{"enabled": true, "profile": "dev", "region": "ap-south-1"})
+
+	m.ask(m.dev, lookupReply("aws_resources", map[string]any{}))
+	res := m.llm.lastUser(1)
+	for _, want := range []string{"Account 111122223333", "ECS clusters (1):", "- payments [ACTIVE]", "Running tasks: 3", "ECS services (1):", "- web", "Desired: 3", "S3 buckets (1):", "Lambda functions: none"} {
+		if !strings.Contains(res, want) {
+			t.Errorf("missing %q in:\n%s", want, res)
+		}
+	}
+	n := stub.count("s3api list-buckets")
+	m.v.expect(200, "GET", "/v1/infra/aws/resources", nil) // the console's own read is served from the same cache
+	m.ask(m.dev, lookupReply("aws_resources", map[string]any{"service": "ecs"}))
+	if got := stub.count("s3api list-buckets"); got != n {
+		t.Errorf("the lookup and the console read AWS separately (%d -> %d)", n, got)
+	}
+	res = m.llm.lastUser(1)
+	if strings.Contains(res, "S3 buckets") || !strings.Contains(res, "ECS services") {
+		t.Errorf("service filter: %s", res)
+	}
+	m.ask(m.dev, lookupReply("aws_resources", map[string]any{"service": "nope"}))
+	if !strings.Contains(m.llm.lastUser(1), "no service matches") {
+		t.Errorf("unknown service: %s", m.llm.lastUser(1))
+	}
+	m.ask(m.dev, lookupReply("aws_resources", map[string]any{"account": "ghost"}))
+	if !strings.Contains(m.llm.lastUser(1), "no such AWS account") {
+		t.Errorf("unknown account: %s", m.llm.lastUser(1))
+	}
+}

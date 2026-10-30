@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -134,21 +135,24 @@ func inventorySpecs() []invSpec {
 }
 
 func (s *Server) handleAWSInventory(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	st, acct, ok := s.accountParam(w, r)
 	if !ok {
 		return
 	}
+	writeJSON(w, http.StatusOK, s.inventoryFor(r.Context(), acct, st, r.URL.Query().Get("refresh") == "1"))
+}
+
+// inventoryFor reads an account's resources, or returns the read from the last minute. The console
+// and the assistant share it, so asking twice costs AWS one read.
+func (s *Server) inventoryFor(ctx context.Context, acct string, st awsSettings, refresh bool) AWSInventoryJSON {
 	if !st.Enabled {
-		writeJSON(w, http.StatusOK, AWSInventoryJSON{Services: []AWSServiceJSON{}})
-		return
+		return AWSInventoryJSON{Services: []AWSServiceJSON{}}
 	}
 	key := acct + "|" + st.Profile + "|" + st.Region
 	s.awsInv.mu.Lock()
-	if e, ok := s.awsInv.entries[key]; ok && r.URL.Query().Get("refresh") != "1" && time.Since(e.at) < inventoryTTL {
+	if e, ok := s.awsInv.entries[key]; ok && !refresh && time.Since(e.at) < inventoryTTL {
 		s.awsInv.mu.Unlock()
-		writeJSON(w, http.StatusOK, e.data)
-		return
+		return e.data
 	}
 	s.awsInv.mu.Unlock()
 
@@ -161,7 +165,71 @@ func (s *Server) handleAWSInventory(w http.ResponseWriter, r *http.Request) {
 		s.awsInv.entries[key] = invEntry{at: time.Now(), data: d}
 		s.awsInv.mu.Unlock()
 	}
-	writeJSON(w, http.StatusOK, d)
+	return d
+}
+
+// lookupAWSResources gives the assistant and agents the explorer's view as compact text.
+func (s *Server) lookupAWSResources(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a struct {
+		Account string `json:"account"`
+		Service string `json:"service"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return "", err
+	}
+	if a.Account == "" {
+		a.Account = primaryAccount
+	}
+	st, err := s.awsFor(ctx, a.Account)
+	if err != nil {
+		return "", err
+	}
+	if !st.Enabled {
+		return "", errors.New("AWS is not connected to this Forgeline server")
+	}
+	d := s.inventoryFor(ctx, a.Account, st, false)
+	if d.Error != "" {
+		return "", errors.New(d.Error)
+	}
+	want := strings.ToLower(strings.TrimSpace(a.Service))
+	var b strings.Builder
+	fmt.Fprintf(&b, "Account %s (id %q), region %s, read %s. Counts include every resource; names are listed up to %d per service.\n", d.Account, a.Account, d.Region, d.FetchedAt, inventoryMax)
+	shown := 0
+	for _, svc := range d.Services {
+		if want != "" && !strings.Contains(strings.ToLower(svc.ID), want) && !strings.Contains(strings.ToLower(svc.Label), want) {
+			continue
+		}
+		shown++
+		switch {
+		case svc.Error != "":
+			fmt.Fprintf(&b, "\n%s: could not be listed (%s)\n", svc.Label, svc.Error)
+			continue
+		case svc.Count == 0:
+			fmt.Fprintf(&b, "\n%s: none\n", svc.Label)
+			continue
+		}
+		fmt.Fprintf(&b, "\n%s (%d):\n", svc.Label, svc.Count)
+		for _, r := range svc.Resources {
+			line := "- " + r.Name
+			if r.ID != r.Name {
+				line += " (" + r.ID + ")"
+			}
+			if r.State != "" {
+				line += " [" + r.State + "]"
+			}
+			if r.Created != "" {
+				line += " created " + r.Created
+			}
+			for _, f := range r.Fields {
+				line += "; " + f.Label + ": " + f.Value
+			}
+			b.WriteString(truncate(line, 240) + "\n")
+		}
+	}
+	if shown == 0 {
+		return "", fmt.Errorf("no service matches %q; leave service out to see them all", a.Service)
+	}
+	return b.String(), nil
 }
 
 func (s *Server) fetchInventory(ctx context.Context, st awsSettings) AWSInventoryJSON {

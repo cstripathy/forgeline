@@ -75,3 +75,16 @@ assistant (`aws_accounts`, then `aws_summary` or `call_aws` with an `account`). 
 for the primary account only; the page says so on the others. Removing an account changes nothing in AWS.
 
 ![An added account (a second real AWS account) in the explorer](45-aws-accounts.png)
+
+### Agents and skills
+
+The Agents page lists agents and skills. A **skill** is a procedure written in plain steps. An
+**agent** is instructions, pinned skill versions, a short list of tools and a tier (T0 advises, T1
+may also file change proposals). Every save is a new version with a fingerprint, its author and a
+note; the page shows the diff from the previous version, flags when a pinned skill has a newer
+version, and can roll back by copying an old version forward. Talk to an agent on its page, pick
+any past version to run, or let the assistant hand it work (`ask_agent`). An agent uses only its own
+tools, every one of them runs as the person asking, and an agent cannot call another agent.
+
+![An agent with a pinned skill, its tools and its version history](46-agent.png)
+
