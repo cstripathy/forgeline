@@ -394,16 +394,16 @@ func (s *Server) scanAccount(ctx context.Context, a AWSAccountJSON, now time.Tim
 		raws = append(raws, f...)
 		ok["iam"] = true
 	}
-	res.Findings = s.reconcile(ctx, a, inv, raws, ok, now)
+	res.Findings = s.reconcile(ctx, a.ID, a.Name, inv.Account, inv.Region, raws, ok, now)
 	return res
 }
 
-func (s *Server) reconcile(ctx context.Context, a AWSAccountJSON, inv AWSInventoryJSON, raws []rawFinding, known map[string]bool, now time.Time) int {
+func (s *Server) reconcile(ctx context.Context, account, accountName, awsAccount, region string, raws []rawFinding, known map[string]bool, now time.Time) int {
 	seen := map[string]bool{}
 	for _, r := range raws {
-		id := findingID(a.ID, r.Rule, r.Resource)
+		id := findingID(account, r.Rule, r.Resource)
 		seen[id] = true
-		f := GuardFinding{ID: id, Rule: r.Rule, Title: r.Title, Severity: r.Severity, Account: a.ID, AccountName: a.Name, AWSAccount: inv.Account, Region: inv.Region,
+		f := GuardFinding{ID: id, Rule: r.Rule, Title: r.Title, Severity: r.Severity, Account: account, AccountName: accountName, AWSAccount: awsAccount, Region: region,
 			Service: r.Service, Resource: r.Resource, Name: r.Name, Detail: r.Detail, Fix: r.Fix, Status: "open", FirstSeen: now, LastSeen: now}
 		var old GuardFinding
 		if err := s.docs.Get(ctx, kindGuardFinding, id, &old); err == nil {
@@ -417,7 +417,7 @@ func (s *Server) reconcile(ctx context.Context, a AWSAccountJSON, inv AWSInvento
 	}
 	old, _ := docstore.Decode[GuardFinding](docs)
 	for _, f := range old {
-		if f.Account != a.ID || f.Status != "open" || seen[f.ID] || !known[f.Service] {
+		if f.Account != account || f.Status != "open" || seen[f.ID] || !known[f.Service] {
 			continue
 		}
 		t := now
@@ -448,9 +448,17 @@ func (s *Server) startScan(ctx context.Context, trigger string, by Principal, on
 		}
 		accts = keep
 	}
-	if len(accts) == 0 {
+	var clusters []K8sCluster
+	if cs, err := s.listK8sClusters(ctx); err == nil {
+		for _, c := range cs {
+			if only == "" || only == "k8s:"+c.ID {
+				clusters = append(clusters, c)
+			}
+		}
+	}
+	if len(accts) == 0 && len(clusters) == 0 {
 		s.guard.mu.Unlock()
-		return GuardScan{}, errors.New("there is no AWS account to scan; connect one first")
+		return GuardScan{}, errors.New("there is no AWS account or cluster to scan; connect one first")
 	}
 	s.guard.running = true
 	scan := GuardScan{ID: randomID(), Status: "running", Trigger: trigger, By: by.Name, StartedAt: time.Now().UTC(), Accounts: []GuardScanAccount{}}
@@ -469,6 +477,10 @@ func (s *Server) startScan(ctx context.Context, trigger string, by Principal, on
 		defer cancel()
 		for _, a := range accts {
 			scan.Accounts = append(scan.Accounts, s.scanAccount(cctx, a, time.Now().UTC()))
+			_ = s.docs.Put(context.Background(), kindGuardScan, scan.ID, scan)
+		}
+		for _, c := range clusters {
+			scan.Accounts = append(scan.Accounts, s.scanCluster(cctx, c, time.Now().UTC()))
 			_ = s.docs.Put(context.Background(), kindGuardScan, scan.ID, scan)
 		}
 		now := time.Now().UTC()
@@ -635,7 +647,7 @@ func (s *Server) handleGuardScan(w http.ResponseWriter, r *http.Request) {
 	scan, err := s.startScan(r.Context(), "manual", principalFrom(r.Context()), req.Account)
 	if err != nil {
 		code := http.StatusConflict
-		if strings.Contains(err.Error(), "no AWS account") {
+		if strings.Contains(err.Error(), "no AWS account or cluster") {
 			code = http.StatusUnprocessableEntity
 		}
 		writeError(w, code, err.Error())

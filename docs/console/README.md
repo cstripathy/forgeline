@@ -117,3 +117,18 @@ workflow the `guard_findings` tool.
 
 ![Guard after a live scan of two AWS accounts](48-guard.png)
 
+### Kubernetes
+
+Kubernetes → Add cluster. Connect an **EKS** cluster through an AWS account Forgeline already uses
+(it asks AWS for a short-lived token, so nothing is stored), or any cluster with a **service-account
+token** that can only get, list and watch (stored in the vault, never shown again and never given to
+steps). Forgeline proves it can read the cluster before saving. The cluster page is the same explorer
+as the AWS account page: nodes, deployments, StatefulSets, DaemonSets, pods, services, namespaces and
+warning events, with state, search and detail. Guard scans clusters too, leaving system namespaces
+out. Forgeline's client can only send GET requests to fixed paths, so reading is safe by construction.
+The assistant, agents and workflows can use `k8s_clusters` and `k8s_resources`.
+
+![A cluster in the explorer](49-kubernetes.png)
+
+![Guard findings for the cluster](50-kubernetes-guard.png)
+

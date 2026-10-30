@@ -8,6 +8,7 @@ import { session } from '../app.js';
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
 const SEV_CLASS = { critical: 'pill-bad', high: 'pill-bad', medium: 'pill-wait', low: 'pill-idle', info: 'pill-idle' };
 const SERVICE = { sg: 'Security groups', ebs: 'EBS volumes', ec2: 'EC2', rds: 'RDS', cfn: 'CloudFormation', ecs: 'ECS', logs: 'CloudWatch Logs', ecr: 'ECR', lambda: 'Lambda', 's3-access': 'S3', iam: 'IAM' };
+const svcName = (id) => SERVICE[id] || (id.startsWith('k8s-') ? 'Kubernetes ' + id.slice(4) : id);
 const sevPill = (s) => h('span', { class: SEV_CLASS[s] || 'pill-idle', 'data-severity': s }, s);
 const SCHEDULE = [[0, 'Off'], [6, 'Every 6 hours'], [12, 'Every 12 hours'], [24, 'Every day'], [168, 'Every week']];
 
@@ -15,12 +16,12 @@ export async function guardPage() {
   const admin = atLeast(session.role, 'admin'), dev = atLeast(session.role, 'developer');
   const el = h('div', {});
   let view = 'open', severity = '', account = '', timer;
-  let data, scans, accounts = [];
+  let data, scans, accounts = [], clusters = [];
 
   async function load() {
     const qs = `?status=${view === 'resolved' ? 'resolved' : 'open'}` + (account ? '&account=' + encodeURIComponent(account) : '');
     try {
-      [data, scans, accounts] = await Promise.all([get('/v1/guard/findings' + qs), get('/v1/guard/scans'), get('/v1/aws/accounts').then(r => r.accounts).catch(() => [])]);
+      [data, scans, accounts, clusters] = await Promise.all([get('/v1/guard/findings' + qs), get('/v1/guard/scans'), get('/v1/aws/accounts').then(r => r.accounts).catch(() => []), get('/v1/k8s/clusters').then(r => r.clusters).catch(() => [])]);
     } catch (e) { return mount(el, errorBox(e.message)); }
     draw();
     clearTimeout(timer);
@@ -52,12 +53,12 @@ export async function guardPage() {
         h('div', { class: 'flex gap-1', role: 'tablist' }, [['open', `Open (${total})`], ['accepted', `Accepted (${data.accepted})`], ['resolved', 'Resolved']].map(([id, label]) => h('button', { type: 'button', role: 'tab', id: 'view-' + id, 'aria-selected': String(view === id),
           class: 'rounded-lg px-3 py-1.5 text-sm font-medium ' + (view === id ? 'bg-brand-50 text-brand-700 dark:bg-brand-950/40 dark:text-brand-200' : 'muted hover:bg-slate-100 dark:hover:bg-slate-800'),
           onclick: () => { view = id; load(); } }, label))),
-        accounts.length > 1 && h('select', { id: 'guard-account', class: 'input w-auto', 'aria-label': 'Account', onchange: (e) => { account = e.target.value; load(); } },
-          h('option', { value: '' }, 'All accounts'), accounts.map(a => h('option', { value: a.id, selected: a.id === account }, a.name)))),
+        accounts.length + clusters.length > 1 && h('select', { id: 'guard-account', class: 'input w-auto', 'aria-label': 'Account', onchange: (e) => { account = e.target.value; load(); } },
+          h('option', { value: '' }, 'Everything'), accounts.map(a => h('option', { value: a.id, selected: a.id === account }, a.name)), clusters.map(k => h('option', { value: 'k8s:' + k.id, selected: 'k8s:' + k.id === account }, k.name + ' (Kubernetes)')))),
       rows.length ? h('div', { class: 'card overflow-x-auto' }, h('table', { class: 'tbl', id: 'findings' }, h('thead', {}, h('tr', {}, ['Severity', 'Finding', 'Resource', 'Account', 'First seen'].map(x => h('th', {}, x)))),
         h('tbody', {}, rows.map(f => h('tr', { class: 'row-link', tabindex: '0', 'data-finding': f.id, 'data-rule': f.rule, onclick: () => detail(f), onkeydown: (e) => { if (e.key === 'Enter') detail(f); } },
           h('td', {}, sevPill(f.severity)), h('td', {}, h('div', { class: 'font-medium' }, f.title), h('div', { class: 'muted max-w-md truncate text-xs' }, f.detail)),
-          h('td', {}, h('div', { class: 'text-sm' }, f.name), h('div', { class: 'muted text-xs' }, SERVICE[f.service] || f.service)),
+          h('td', {}, h('div', { class: 'text-sm' }, f.name), h('div', { class: 'muted text-xs' }, svcName(f.service))),
           h('td', { class: 'text-sm' }, f.account_name), h('td', { class: 'muted whitespace-nowrap text-sm', title: absTime(f.first_seen) }, relTime(f.first_seen)))))))
         : emptyState('shield', last ? (view === 'open' ? 'Nothing open here' : 'Nothing to show') : 'No scan has run yet', last ? null : 'Press Scan now to check your accounts.'));
   }
@@ -73,7 +74,7 @@ export async function guardPage() {
         catch (e) { mount(err, errorBox(e.message)); err.classList.remove('hidden'); }
       } }, 'Accept this finding');
       return h('div', { class: 'space-y-4', id: 'finding-detail' },
-        h('div', { class: 'flex flex-wrap items-center gap-3' }, sevPill(f.severity), h('span', { class: 'muted text-sm' }, `${f.account_name}${f.aws_account ? ' · ' + f.aws_account : ''} · ${f.region} · ${SERVICE[f.service] || f.service}`)),
+        h('div', { class: 'flex flex-wrap items-center gap-3' }, sevPill(f.severity), h('span', { class: 'muted text-sm' }, `${f.account_name}${f.aws_account ? ' · ' + f.aws_account : ''} · ${f.region} · ${svcName(f.service)}`)),
         h('dl', { class: 'grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm' }, h('dt', { class: 'muted' }, 'Resource'), h('dd', { class: 'break-all font-mono text-xs' }, f.name + (f.resource !== f.name ? ' (' + f.resource + ')' : '')),
           h('dt', { class: 'muted' }, 'What we saw'), h('dd', {}, f.detail), h('dt', { class: 'muted' }, 'First seen'), h('dd', { title: absTime(f.first_seen) }, relTime(f.first_seen)),
           h('dt', { class: 'muted' }, f.status === 'resolved' ? 'Resolved' : 'Last seen'), h('dd', { title: absTime(f.resolved_at || f.last_seen) }, relTime(f.resolved_at || f.last_seen))),

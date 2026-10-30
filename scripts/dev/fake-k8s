@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+# A read-only stand-in for the Kubernetes API, with one messy application in it, for trying the
+# console's Kubernetes pages and Guard without a cluster. Serves only GET and rejects any other
+# method with 405, like a role that can only read. See README.md.
+#   FAKE_K8S_PORT (default 18090), FAKE_K8S_TOKEN (default dev-token)
+import json, os, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+TOKEN = os.environ.get("FAKE_K8S_TOKEN", "dev-token")
+PORT = int(os.environ.get("FAKE_K8S_PORT", "18090"))
+
+def ctr(name, image, extra=None):
+    c = {"name": name, "image": image}
+    c.update(extra or {})
+    return c
+
+def items(*xs): return {"items": list(xs)}
+
+DATA = {
+    "/version": {"gitVersion": "v1.31.4"},
+    "/api/v1/nodes": items(
+        {"metadata": {"name": "ip-10-0-1-11", "creationTimestamp": "2026-10-01T08:00:00Z"}, "status": {"conditions": [{"type": "Ready", "status": "True"}], "nodeInfo": {"kubeletVersion": "v1.31.4", "osImage": "Amazon Linux 2023"}, "capacity": {"cpu": "4", "memory": "16Gi"}}},
+        {"metadata": {"name": "ip-10-0-2-27", "creationTimestamp": "2026-10-01T08:00:00Z"}, "status": {"conditions": [{"type": "Ready", "status": "False"}], "nodeInfo": {"kubeletVersion": "v1.31.4", "osImage": "Amazon Linux 2023"}, "capacity": {"cpu": "4", "memory": "16Gi"}}}),
+    "/api/v1/namespaces": items({"metadata": {"name": "shop"}, "status": {"phase": "Active"}}, {"metadata": {"name": "default"}, "status": {"phase": "Active"}}, {"metadata": {"name": "kube-system"}, "status": {"phase": "Active"}}),
+    "/api/v1/pods": items(
+        {"metadata": {"name": "api-7d9f-x1", "namespace": "shop", "creationTimestamp": "2026-10-29T09:00:00Z"}, "spec": {"nodeName": "ip-10-0-1-11", "containers": [ctr("api", "shop/api:1.2")]}, "status": {"phase": "Running", "containerStatuses": [{"name": "api", "ready": False, "restartCount": 9, "state": {"waiting": {"reason": "CrashLoopBackOff"}}}]}},
+        {"metadata": {"name": "web-5c8-a1", "namespace": "shop", "creationTimestamp": "2026-10-29T09:00:00Z"}, "spec": {"nodeName": "ip-10-0-1-11", "containers": [ctr("web", "shop/web:latest")]}, "status": {"phase": "Running", "containerStatuses": [{"name": "web", "ready": True, "restartCount": 0, "state": {"running": {}}}]}}),
+    "/api/v1/services": items(
+        {"metadata": {"name": "web", "namespace": "shop", "creationTimestamp": "2026-10-20T09:00:00Z"}, "spec": {"type": "LoadBalancer", "clusterIP": "10.100.0.5", "ports": [{"port": 443, "protocol": "TCP"}]}, "status": {"loadBalancer": {"ingress": [{"hostname": "shop-lb.example.com"}]}}},
+        {"metadata": {"name": "api", "namespace": "shop", "creationTimestamp": "2026-10-20T09:00:00Z"}, "spec": {"type": "ClusterIP", "clusterIP": "10.100.0.6", "ports": [{"port": 8080, "protocol": "TCP"}]}}),
+    "/api/v1/events": items({"metadata": {"name": "ev1", "namespace": "shop"}, "type": "Warning", "reason": "BackOff", "message": "Back-off restarting failed container api", "count": 31, "lastTimestamp": "2026-10-30T20:55:00Z", "involvedObject": {"kind": "Pod", "name": "api-7d9f-x1", "namespace": "shop"}}),
+    "/apis/apps/v1/deployments": items(
+        {"metadata": {"name": "web", "namespace": "shop", "creationTimestamp": "2026-10-20T09:00:00Z"}, "spec": {"replicas": 3, "template": {"spec": {"hostNetwork": True, "containers": [ctr("web", "shop/web:latest", {"securityContext": {"privileged": True}})]}}}, "status": {"replicas": 3, "readyReplicas": 0}},
+        {"metadata": {"name": "api", "namespace": "shop", "creationTimestamp": "2026-10-20T09:00:00Z"}, "spec": {"replicas": 2, "template": {"spec": {"containers": [ctr("api", "shop/api:1.2", {"securityContext": {"runAsNonRoot": True}, "resources": {"limits": {"memory": "512Mi"}}})]}}}, "status": {"replicas": 2, "readyReplicas": 1}},
+        {"metadata": {"name": "worker", "namespace": "default", "creationTimestamp": "2026-10-20T09:00:00Z"}, "spec": {"replicas": 1, "template": {"spec": {"containers": [ctr("worker", "shop/worker@sha256:abc", {"securityContext": {"runAsNonRoot": True}, "resources": {"limits": {"memory": "1Gi"}}})]}}}, "status": {"replicas": 1, "readyReplicas": 1}}),
+    "/apis/apps/v1/statefulsets": items({"metadata": {"name": "db", "namespace": "shop", "creationTimestamp": "2026-10-20T09:00:00Z"}, "spec": {"replicas": 1, "template": {"spec": {"containers": [ctr("db", "postgres:16", {"securityContext": {"runAsUser": 999}, "resources": {"limits": {"memory": "2Gi"}}})]}}}, "status": {"readyReplicas": 1}}),
+    "/apis/apps/v1/daemonsets": items({"metadata": {"name": "log-agent", "namespace": "shop", "creationTimestamp": "2026-10-20T09:00:00Z"}, "spec": {"template": {"spec": {"containers": [ctr("agent", "shop/agent:2", {"securityContext": {"runAsNonRoot": True}, "resources": {"limits": {"memory": "64Mi"}}})]}}}, "status": {"desiredNumberScheduled": 2, "numberReady": 2}}),
+}
+
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def _send(self, code, body):
+        b = json.dumps(body).encode()
+        self.send_response(code); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+    def do_GET(self):
+        if self.headers.get("Authorization") != "Bearer " + TOKEN:
+            return self._send(401, {"message": "Unauthorized"})
+        path = self.path.split("?")[0]
+        if path in DATA: return self._send(200, DATA[path])
+        self._send(404, {"message": "not found"})
+    def _no(self): self._send(405, {"message": "this stand-in is read-only"})
+    do_POST = do_PUT = do_PATCH = do_DELETE = _no
+
+if __name__ == "__main__":
+    print("fake Kubernetes API on http://127.0.0.1:%d (token %s)" % (PORT, TOKEN), file=sys.stderr)
+    HTTPServer(("127.0.0.1", PORT), H).serve_forever()

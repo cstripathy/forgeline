@@ -70,3 +70,15 @@ PATH=/tmp/fake-aws/bin:$PATH FAKE_AWS_STATE=/tmp/fake-aws/state.json \
 ```
 
 In the console connect AWS (empty profile, any region), then Infrastructure → AWS → AWS MCP Server → Turn on.
+
+## `fake-k8s`: a stand-in for the Kubernetes API
+
+Serves a read-only cluster with one messy application (a privileged host-networked deployment, a
+crash-looping pod, a node that is not ready, a load balancer service) on `127.0.0.1:18090` with the
+token `dev-token`. It answers any method other than GET with 405.
+
+```sh
+python3 scripts/dev/fake-k8s &
+```
+
+In the console: Kubernetes → Add cluster → Token, server `http://127.0.0.1:18090`, token `dev-token`.

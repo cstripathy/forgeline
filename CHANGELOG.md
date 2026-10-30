@@ -7,6 +7,13 @@ section in the pull request that makes the change; a release moves it under its 
 ## [Unreleased]
 
 ### Added
+- **Kubernetes (read-only).** Register clusters (EKS through a connected AWS account, nothing stored;
+  or any cluster with a service-account token kept in the vault), explore nodes, deployments,
+  StatefulSets, DaemonSets, pods, services, namespaces and warning events, and let Guard check them:
+  privileged containers, host networking, running as root, unpinned images, missing memory limits,
+  workloads with no ready replicas, failing pods, nodes that are not ready, services exposed through a
+  load balancer. The client can only send GET requests. The assistant and agents read clusters with
+  `k8s_clusters` and `k8s_resources`. (note 017)
 - **Guard.** Scheduled or on-demand read-only security and hygiene scans of every connected AWS
   account: open security groups, unencrypted volumes and databases, public databases, S3 public-access
   settings, the IAM credential report (root keys and MFA, users without MFA, old access keys),

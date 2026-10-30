@@ -29,7 +29,7 @@ function touchedBy(res, proposals) {
   return proposals.filter(p => p.status === 'applied' && keys.some(k => p.code.includes(k)));
 }
 
-export function explorer({ dev, account = 'primary' }) {
+export function explorer({ dev, account = 'primary', url = '', scope = 'region' }) {
   const root = h('section', { class: 'card', id: 'aws-explorer' }, spinner());
   let inv = null, proposals = [], selected = '', query = '', shown = PAGE;
 
@@ -37,9 +37,9 @@ export function explorer({ dev, account = 'primary' }) {
     mount(root, spinner());
     try {
       [inv, proposals] = await Promise.all([
-        get('/v1/infra/aws/resources?account=' + encodeURIComponent(account) + (refresh ? '&refresh=1' : '')),
+        get(url ? url + (refresh ? '?refresh=1' : '') : '/v1/infra/aws/resources?account=' + encodeURIComponent(account) + (refresh ? '&refresh=1' : '')),
         // Proposals are for the primary account, so only it can show "changed through Forgeline".
-        account === 'primary' ? get('/v1/ai/proposals').then(r => r.proposals).catch(() => []) : [],
+        account === 'primary' && !url ? get('/v1/ai/proposals').then(r => r.proposals).catch(() => []) : [],
       ]);
     } catch (e) { return mount(root, h('div', { class: 'p-5' }, errorBox(e.message))); }
     draw();
@@ -67,7 +67,7 @@ export function explorer({ dev, account = 'primary' }) {
     mount(root,
       h('div', { class: 'flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-3 dark:border-slate-800' },
         h('div', {}, h('h2', { class: 'h-section' }, 'Resources'),
-          h('p', { class: 'muted mt-0.5 text-xs', title: absTime(inv.fetched_at) }, `${total} in ${withStuff.length} service${withStuff.length === 1 ? '' : 's'} · region ${inv.region} · read ${relTime(inv.fetched_at)}`)),
+          h('p', { class: 'muted mt-0.5 text-xs', title: absTime(inv.fetched_at) }, `${total} in ${withStuff.length} service${withStuff.length === 1 ? '' : 's'} · ${scope} ${inv.region} · read ${relTime(inv.fetched_at)}`)),
         h('div', { class: 'flex items-center gap-2' }, search,
           h('button', { class: 'btn-secondary btn-sm', type: 'button', id: 'explorer-refresh', onclick: () => load(true) }, icon('refresh', 'size-3.5'), 'Refresh'))),
       tiles, tableBox, changesPanel(applied));

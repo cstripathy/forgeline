@@ -106,6 +106,10 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | `GET /v1/ai/workflow-runs/{id}` | developer | One run with each step's output. |
 | `POST /v1/ai/workflow-runs/{id}/release` | admin | Let a run waiting at a gate start its next stage. |
 | `POST /v1/ai/workflow-runs/{id}/cancel` | developer | Cancel a run (its starter, or an administrator). |
+| `GET /v1/k8s/clusters` | viewer | Registered Kubernetes clusters (never their tokens). |
+| `POST /v1/k8s/clusters` | admin | Register a cluster (`eks` through a connected AWS account, or `token`); proves it with a read before saving. |
+| `DELETE /v1/k8s/clusters/{id}` | admin | Remove a cluster and its stored token. Changes nothing in the cluster. |
+| `GET /v1/k8s/clusters/{id}/resources` | viewer | Nodes, workloads, pods, services, namespaces and warning events, read-only; `?refresh=1` skips the 60 s cache. |
 | `GET /v1/guard/findings` | viewer | Guard findings (`?status=open|resolved`, `?account=`, `?severity=`) with severity counts and any accepted exception. |
 | `GET /v1/guard/scans` | viewer | Recent scans and the automatic scan interval. |
 | `POST /v1/guard/scan` | developer | Start a scan of every account (or `account`); read-only; one at a time. |
