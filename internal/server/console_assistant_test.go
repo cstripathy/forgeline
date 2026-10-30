@@ -188,7 +188,7 @@ func TestAssistantCLIBackendRunsClaudeWithNoToolsAndCleanEnvironment(t *testing.
 	}
 	b, _ := os.ReadFile(record)
 	got := string(b)
-	for _, want := range []string{"--tools  ", "--max-turns 1", "--no-session-persistence", "--model sonnet", "--system-prompt-file", "Summarise."} {
+	for _, want := range []string{"--tools  ", "--max-turns 1", "--no-session-persistence", "--strict-mcp-config", `--mcp-config {"mcpServers":{}}`, "--model sonnet", "--system-prompt-file", "Summarise."} {
 		if !strings.Contains(got, want) {
 			t.Errorf("claude was started without %q:\n%s", want, got)
 		}
