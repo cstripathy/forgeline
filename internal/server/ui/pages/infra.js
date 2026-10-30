@@ -1,5 +1,5 @@
 import { h, icon, mount, pill, pageHeader, relTime, absTime, bytes, spinner, errorBox, notice, toast, modal, confirmDialog, field, emptyState, kpi } from '../lib/dom.js';
-import { get, put, post, atLeast } from '../lib/api.js';
+import { get, put, post, del, atLeast } from '../lib/api.js';
 import { navigate } from '../lib/router.js';
 import { session } from '../app.js';
 import { ssoWizard } from './aws_sso.js';
@@ -85,23 +85,75 @@ function uptime(sec) {
 
 // ---------------------------------------------------------------- aws
 
+const ACCOUNT_KEY = 'forgeline-aws-account';
+const ENVS = [['', 'No label'], ['production', 'Production'], ['staging', 'Staging'], ['development', 'Development'], ['sandbox', 'Sandbox']];
+
 async function aws(body) {
-  const admin = atLeast(session.role, 'admin'), dev = atLeast(session.role, 'developer');
+  const admin = atLeast(session.role, 'admin'), devRole = atLeast(session.role, 'developer');
+  let account = 'primary', accounts = [];
+  try { account = sessionStorage.getItem(ACCOUNT_KEY) || 'primary'; } catch { /* a blocked store only forgets the choice */ }
+  // Changes are proposed for the primary account only; the other accounts are for reading.
+  let dev = devRole;
+  const q = (extra) => '?account=' + encodeURIComponent(account) + (extra || '');
+
   async function load(refresh) {
     let v;
-    try { v = await get('/v1/infra/aws' + (refresh ? '?refresh=1' : '')); } catch (e) { return mount(body, errorBox(e.message)); }
-    if (!v.enabled) return mount(body, connectCard(null));
+    try { accounts = (await get('/v1/aws/accounts')).accounts; } catch { accounts = []; }
+    if (account !== 'primary' && !accounts.some(a => a.id === account)) account = 'primary'; // it was removed
+    dev = devRole && account === 'primary';
+    try { v = await get('/v1/infra/aws' + q(refresh ? '&refresh=1' : '')); } catch (e) { return mount(body, errorBox(e.message)); }
+    if (!v.enabled && account === 'primary') return mount(body, accounts.length ? h('div', { class: 'space-y-4' }, accountBar(), connectCard(null)) : connectCard(null));
     mount(body,
+      accounts.length > 1 || admin ? accountBar() : null,
+      account !== 'primary' && h('div', { class: 'mb-4' }, notice('info', 'This account is read-only here. The explorer, stacks, spend and the assistant can look at it; changes can be proposed for the primary account only.')),
       h('div', { class: 'mb-4 flex flex-wrap items-center justify-between gap-3' },
         v.identity ? h('div', { class: 'flex items-center gap-3 text-sm' }, h('span', { class: 'pill-ok' }, 'Connected'),
           h('span', {}, 'Account ', h('strong', { class: 'font-mono' }, v.identity.account)), h('span', { class: 'muted' }, 'region ' + v.region + (v.profile === 'forgeline-sso' ? ' · signed in from the console' : v.profile ? ' · profile ' + v.profile : '')),
           h('span', { class: 'muted hidden font-mono text-xs lg:inline' }, v.identity.arn)) : h('span', { class: 'pill-bad' }, 'Not reachable'),
         h('div', { class: 'flex gap-2' },
           h('button', { class: 'btn-secondary btn-sm', type: 'button', onclick: () => load(true) }, icon('refresh', 'size-3.5'), 'Refresh'),
-          admin && h('button', { class: 'btn-secondary btn-sm', type: 'button', onclick: () => connectModal(v) }, 'Change connection'))),
+          admin && account === 'primary' && h('button', { class: 'btn-secondary btn-sm', type: 'button', onclick: () => connectModal(v) }, 'Change connection'))),
       v.error && h('div', { class: 'mb-4' }, errorBox(v.error)),
       v.section_errors && Object.entries(v.section_errors).map(([k, m]) => h('div', { class: 'mb-4' }, notice('warn', h('strong', {}, k + ': '), m))),
-      !v.error && h('div', { class: 'space-y-4' }, explorer({ dev }), stacksCard(v), instancesCard(v), costCard(), admin && mcpCard()));
+      !v.error && h('div', { class: 'space-y-4' }, explorer({ dev: devRole, account }), stacksCard(v), instancesCard(v), costCard(), admin && account === 'primary' && mcpCard()));
+  }
+
+  function accountBar() {
+    const cur = accounts.find(a => a.id === account);
+    const sel = h('select', { id: 'aws-account', class: 'input w-auto min-w-48', 'aria-label': 'AWS account', onchange: (e) => {
+      account = e.target.value;
+      try { sessionStorage.setItem(ACCOUNT_KEY, account); } catch { /* fine */ }
+      load(false);
+    } }, accounts.map(a => h('option', { value: a.id, selected: a.id === account }, a.name + (a.env ? ' · ' + a.env : '') + (a.account_id ? ' · ' + a.account_id : ''))));
+    return h('div', { class: 'mb-4 flex flex-wrap items-center gap-2' },
+      accounts.length ? [h('label', { class: 'muted text-sm', for: 'aws-account' }, 'Account'), sel] : null,
+      admin && h('button', { class: 'btn-secondary btn-sm', type: 'button', id: 'add-account', onclick: addAccountModal }, icon('plus', 'size-3.5'), 'Add account'),
+      admin && cur && !cur.primary && h('button', { class: 'btn-ghost btn-sm text-rose-600 dark:text-rose-400', type: 'button', onclick: async () => {
+        if (!await confirmDialog({ title: 'Remove ' + cur.name + '?', body: 'Forgeline stops showing it. Nothing in the AWS account changes.', confirmLabel: 'Remove', danger: true })) return;
+        try { await del('/v1/aws/accounts/' + encodeURIComponent(cur.id)); toast('Removed', 'ok'); account = 'primary'; load(true); } catch (e) { toast(e.message, 'error'); }
+      } }, icon('trash', 'size-3.5'), 'Remove'));
+  }
+
+  function addAccountModal() {
+    modal('Add an AWS account', (close) => {
+      const name = h('input', { id: 'acct-name', class: 'input', maxlength: '40', placeholder: 'Staging' });
+      const profile = h('input', { id: 'acct-profile', class: 'input font-mono', placeholder: 'staging' });
+      const region = h('input', { id: 'acct-region', class: 'input', value: 'ap-south-1' });
+      const env = h('select', { id: 'acct-env', class: 'input' }, ENVS.map(([v, l]) => h('option', { value: v }, l)));
+      const err = h('div', { class: 'hidden' });
+      const go = h('button', { class: 'btn-primary', type: 'button', id: 'acct-save', onclick: async () => {
+        err.classList.add('hidden'); go.disabled = true; go.textContent = 'Checking the profile…';
+        try {
+          const a = await post('/v1/aws/accounts', { name: name.value, profile: profile.value, region: region.value, env: env.value });
+          account = a.id; try { sessionStorage.setItem(ACCOUNT_KEY, account); } catch { /* fine */ }
+          toast('Added ' + a.name, 'ok'); close(); load(true);
+        } catch (e) { mount(err, errorBox(e.message)); err.classList.remove('hidden'); go.disabled = false; go.textContent = 'Add account'; }
+      } }, 'Add account');
+      return h('div', { class: 'space-y-4' },
+        notice('info', 'Read-only. Forgeline signs in with a profile that already exists in the server\'s AWS configuration (run aws sso login --profile <name> on the server first) and checks it before saving. Use a role with only read permissions where you can.'),
+        h('div', { class: 'grid gap-4 sm:grid-cols-2' }, field('Name', name, null, 'acct-name'), field('Environment', env, null, 'acct-env'), field('Profile', profile, 'A profile from the server\'s AWS config.', 'acct-profile'), field('Region', region, null, 'acct-region')),
+        err, h('div', { class: 'flex justify-end gap-2' }, h('button', { class: 'btn-secondary', type: 'button', onclick: () => close() }, 'Cancel'), go));
+    }, { wide: true });
   }
 
   function mcpCard() {
@@ -189,10 +241,10 @@ async function aws(body) {
 
   function costCard() {
     const out = h('div', {});
-    const loadBtn = h('button', { class: 'btn-secondary btn-sm', type: 'button', disabled: !dev, onclick: async () => {
+    const loadBtn = h('button', { class: 'btn-secondary btn-sm', type: 'button', disabled: !devRole, onclick: async () => {
       loadBtn.disabled = true; mount(out, spinner());
       try {
-        const c = await get('/v1/infra/aws/cost');
+        const c = await get('/v1/infra/aws/cost' + q());
         if (!c.available) return mount(out, h('div', { class: 'p-5' }, errorBox(c.error || 'Cost data is not available.'), h('p', { class: 'muted mt-2 text-xs' }, 'Cost Explorer must be enabled on the account and the role allowed to call ce:GetCostAndUsage.')));
         const max = Math.max(...c.services.map(x => x.amount), 1);
         mount(out, h('div', { class: 'p-5' }, h('div', { class: 'mb-4 text-3xl font-semibold tabular-nums' }, c.unit + ' ' + c.total.toFixed(2), h('span', { class: 'muted ml-2 text-sm font-normal' }, c.from + ' to ' + c.to)),

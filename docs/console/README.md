@@ -64,3 +64,14 @@ only reads, and a service the role may not list is named instead of shown as emp
 
 The assistant drafted the change, another administrator approved the exact script, Forgeline applied
 it through `scripts/dev/fake-aws-mcp` (a stand-in; design note 016).
+
+### Several AWS accounts
+
+Infrastructure → AWS account has an account switcher. The connection made first is the primary
+account; administrators can add more by profile and region (Add account proves the profile with
+`sts get-caller-identity`, labels it production, staging, development or sandbox, and refuses an
+account that is already added). Every account can be read: the explorer, stacks, spend, and the
+assistant (`aws_accounts`, then `aws_summary` or `call_aws` with an `account`). Changes are proposed
+for the primary account only; the page says so on the others. Removing an account changes nothing in AWS.
+
+![An added account (a second real AWS account) in the explorer](45-aws-accounts.png)

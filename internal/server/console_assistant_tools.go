@@ -44,8 +44,9 @@ func assistantLookups() []lookupTool {
 		{"get_step_log", `{"run_id":"...","step_id":"..."} the end of one step's output`, authn.Viewer, (*Server).lookupStepLog},
 		{"list_pipelines", `{} saved pipelines with their ids`, authn.Viewer, (*Server).lookupListPipelines},
 		{"get_pipeline", `{"id":"pipeline id"} one saved pipeline file`, authn.Viewer, (*Server).lookupGetPipeline},
-		{"aws_summary", `{} the connected AWS account summary`, authn.Viewer, (*Server).lookupAWS},
-		{"call_aws", `{"cli_command":"aws ecs list-clusters --region ap-south-1"} one read-only AWS CLI call (describe-, list-, get- only; no secrets, credentials, data or logs). Administrators only`, authn.Admin, (*Server).lookupCallAWS},
+		{"aws_accounts", `{} the AWS accounts that are connected, with their ids`, authn.Viewer, (*Server).lookupAWSAccounts},
+		{"aws_summary", `{"account":"optional account id from aws_accounts"} the AWS account summary: stacks and instances`, authn.Viewer, (*Server).lookupAWS},
+		{"call_aws", `{"cli_command":"aws ecs list-clusters --region ap-south-1","account":"optional account id from aws_accounts"} one read-only AWS CLI call (describe-, list-, get- only; no secrets, credentials, data or logs). Administrators only`, authn.Admin, (*Server).lookupCallAWS},
 		{"aws_script", `{"code":"r = await call_boto3(service_name='ecs', operation_name='ListClusters', region_name='ap-south-1', params={})\nresult = r\nresult"} read-only AWS API calls through the AWS MCP Server; every call_boto3 must name its service and operation in quotes, and only Describe, List and Get operations run. Administrators only`, authn.Admin, (*Server).lookupAWSScript},
 		{"propose_aws_change", `{"title":"...","reason":"why, for the approver","code":"r = await call_boto3(service_name='ecs', operation_name='UpdateService', region_name='ap-south-1', params={'cluster':'payments','service':'web','desiredCount':2})\nresult = r\nresult"} files a change proposal; nothing runs until a different administrator approves it. Cannot delete, terminate, or touch iam, organizations, sts, kms, secrets, ssm or logging`, authn.Developer, (*Server).lookupProposeChange},
 		{"aws_search_documentation", `{"search_phrase":"...","limit":5} search AWS documentation`, authn.Developer, nil},
@@ -59,15 +60,15 @@ func assistantLookups() []lookupTool {
 
 // needsMCP marks the tools that exist only when the AWS MCP Server is turned on.
 func needsMCP(name string) bool {
-	return name == "aws_script" || name == "propose_aws_change" || strings.HasPrefix(name, "aws_") && name != "aws_summary"
+	return name == "aws_script" || name == "propose_aws_change" || strings.HasPrefix(name, "aws_") && name != "aws_summary" && name != "aws_accounts"
 }
 
 func (s *Server) lookupHelp(ctx context.Context, role authn.Role) string {
 	mcpOn := s.loadAWSMCP(ctx).Enabled
 	var b strings.Builder
 	for _, t := range assistantLookups() {
-		if needsMCP(t.name) && !mcpOn || t.name == "call_aws" && mcpOn {
-			continue // one way to reach AWS at a time: the MCP server when it is on, the CLI otherwise
+		if needsMCP(t.name) && !mcpOn || t.name == "call_aws" && mcpOn && !s.hasAddedAccounts(ctx) {
+			continue // one way to reach the primary account at a time: the MCP server when it is on, the CLI otherwise
 		}
 		if role.AtLeast(t.min) {
 			fmt.Fprintf(&b, "- %s %s\n", t.name, t.help)
@@ -113,7 +114,13 @@ func (s *Server) runLookup(ctx context.Context, p Principal, c lookupCall) (stri
 			return "", fmt.Errorf("%s needs the AWS MCP Server, which is not turned on", t.name)
 		}
 		if t.name == "call_aws" && s.loadAWSMCP(ctx).Enabled {
-			return "", errors.New("call_aws is off while the AWS MCP Server is on; use aws_script")
+			var a struct {
+				Account string `json:"account"`
+			}
+			_ = json.Unmarshal(c.Args, &a)
+			if a.Account == "" || a.Account == primaryAccount {
+				return "", errors.New("call_aws is off for the primary account while the AWS MCP Server is on; use aws_script, or pass the id of another account")
+			}
 		}
 		if t.run == nil {
 			t.run = s.lookupAWSDoc(t.name)
@@ -273,9 +280,23 @@ func (s *Server) lookupGetPipeline(ctx context.Context, raw json.RawMessage) (st
 	return text, err
 }
 
-func (s *Server) lookupAWS(ctx context.Context, _ json.RawMessage) (string, error) {
-	text, _, err := s.assistantContext(ctx, chatContext{Kind: "infra"})
-	return text, err
+func (s *Server) lookupAWS(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a struct {
+		Account string `json:"account"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return "", err
+	}
+	if a.Account == "" || a.Account == primaryAccount {
+		text, _, err := s.assistantContext(ctx, chatContext{Kind: "infra"})
+		return text, err
+	}
+	st, err := s.awsFor(ctx, a.Account)
+	if err != nil {
+		return "", err
+	}
+	j, _ := json.Marshal(s.fetchAWS(ctx, st))
+	return "AWS summary (JSON) for account " + a.Account + ":\n" + truncate(string(j), 14<<10), nil
 }
 
 func (s *Server) lookupAudit(ctx context.Context, raw json.RawMessage) (string, error) {

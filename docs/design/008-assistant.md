@@ -66,3 +66,5 @@ broken one at a time to confirm a test fails (role, escape, cap). Two parse rule
 block) are also guarded by JSON parsing, so removing either alone changes nothing. Tried with the
 real `claude` through the `claude-token` backend: it listed runs, found a failing run and read
 its log.
+
+With more than one AWS account connected (note 017) the assistant first calls `aws_accounts`, then passes an `account` id to `aws_summary` or `call_aws`. `call_aws` stays off for the primary account while the AWS MCP Server is on, but works for added accounts because the MCP server only serves the primary one.

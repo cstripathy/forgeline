@@ -63,10 +63,15 @@ type AWSInventoryJSON struct {
 	Services  []AWSServiceJSON `json:"services"`
 }
 
+// invCache keeps the last read of each account for a minute, so switching between accounts does not
+// start a 20 second read every time.
 type invCache struct {
-	mu   sync.Mutex
+	mu      sync.Mutex
+	entries map[string]invEntry
+}
+
+type invEntry struct {
 	at   time.Time
-	key  string
 	data AWSInventoryJSON
 }
 
@@ -130,17 +135,19 @@ func inventorySpecs() []invSpec {
 
 func (s *Server) handleAWSInventory(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	st := s.loadAWS(ctx)
+	st, acct, ok := s.accountParam(w, r)
+	if !ok {
+		return
+	}
 	if !st.Enabled {
 		writeJSON(w, http.StatusOK, AWSInventoryJSON{Services: []AWSServiceJSON{}})
 		return
 	}
-	key := st.Profile + "|" + st.Region
+	key := acct + "|" + st.Profile + "|" + st.Region
 	s.awsInv.mu.Lock()
-	if r.URL.Query().Get("refresh") != "1" && s.awsInv.key == key && time.Since(s.awsInv.at) < inventoryTTL {
-		d := s.awsInv.data
+	if e, ok := s.awsInv.entries[key]; ok && r.URL.Query().Get("refresh") != "1" && time.Since(e.at) < inventoryTTL {
 		s.awsInv.mu.Unlock()
-		writeJSON(w, http.StatusOK, d)
+		writeJSON(w, http.StatusOK, e.data)
 		return
 	}
 	s.awsInv.mu.Unlock()
@@ -148,7 +155,10 @@ func (s *Server) handleAWSInventory(w http.ResponseWriter, r *http.Request) {
 	d := s.fetchInventory(ctx, st)
 	if d.Error == "" {
 		s.awsInv.mu.Lock()
-		s.awsInv.key, s.awsInv.at, s.awsInv.data = key, time.Now(), d
+		if s.awsInv.entries == nil || len(s.awsInv.entries) >= maxAWSAccounts+1 {
+			s.awsInv.entries = map[string]invEntry{} // a fresh map bounds memory; entries are cheap to refetch
+		}
+		s.awsInv.entries[key] = invEntry{at: time.Now(), data: d}
 		s.awsInv.mu.Unlock()
 	}
 	writeJSON(w, http.StatusOK, d)

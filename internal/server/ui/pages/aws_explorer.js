@@ -29,7 +29,7 @@ function touchedBy(res, proposals) {
   return proposals.filter(p => p.status === 'applied' && keys.some(k => p.code.includes(k)));
 }
 
-export function explorer({ dev }) {
+export function explorer({ dev, account = 'primary' }) {
   const root = h('section', { class: 'card', id: 'aws-explorer' }, spinner());
   let inv = null, proposals = [], selected = '', query = '', shown = PAGE;
 
@@ -37,8 +37,9 @@ export function explorer({ dev }) {
     mount(root, spinner());
     try {
       [inv, proposals] = await Promise.all([
-        get('/v1/infra/aws/resources' + (refresh ? '?refresh=1' : '')),
-        get('/v1/ai/proposals').then(r => r.proposals).catch(() => []),
+        get('/v1/infra/aws/resources?account=' + encodeURIComponent(account) + (refresh ? '&refresh=1' : '')),
+        // Proposals are for the primary account, so only it can show "changed through Forgeline".
+        account === 'primary' ? get('/v1/ai/proposals').then(r => r.proposals).catch(() => []) : [],
       ]);
     } catch (e) { return mount(root, h('div', { class: 'p-5' }, errorBox(e.message))); }
     draw();
@@ -80,7 +81,7 @@ export function explorer({ dev }) {
       onclick: () => { selected = on ? '' : svc.id; shown = PAGE; draw(); } },
       h('div', { class: 'flex items-center justify-between gap-2' }, h('span', { class: 'flex min-w-0 items-center gap-2' }, h('span', { class: 'size-2 shrink-0 rounded-full ' + DOT[svc.category], title: svc.category }), h('span', { class: 'truncate text-sm font-medium' }, svc.label)), svc.global ? h('span', { class: 'muted text-[10px] uppercase' }, 'global') : null),
       h('div', { class: 'mt-1 text-2xl font-semibold tabular-nums' }, svc.count),
-      h('div', { class: 'muted mt-0.5 truncate text-xs' }, stateSummary(svc) || ' '));
+      h('div', { class: 'muted mt-0.5 truncate text-xs' }, stateSummary(svc) || '\u00a0'));
   }
 
   function matches(r) {

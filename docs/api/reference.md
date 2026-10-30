@@ -94,8 +94,11 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | `POST /v1/integrations/aws/sso/connect` | admin | Body: `account_id`, `account_name`, `role_name`, `region`. Tests the credentials before keeping them. |
 | `GET /v1/integrations/aws/sso` | developer | Whether you are signed in, and until when. |
 | `DELETE /v1/integrations/aws/sso` | admin | Sign out and delete the stored token. |
-| `GET /v1/infra/aws` | viewer | Identity, stacks, instances. |
-| `GET /v1/infra/aws/resources` | viewer | Every resource in the account by service (ECS, EC2, S3, Lambda, RDS and more), read-only; `?refresh=1` skips the 60 s cache. |
+| `GET /v1/aws/accounts` | viewer | The connected AWS accounts: the primary one and any added. |
+| `POST /v1/aws/accounts` | admin | Add a read-only account by profile and region; proves it with `sts get-caller-identity`, refuses duplicates. |
+| `DELETE /v1/aws/accounts/{id}` | admin | Remove an added account. Changes nothing in AWS. |
+| `GET /v1/infra/aws` | viewer | Identity, stacks, instances. `?account=<id>` reads an added account. |
+| `GET /v1/infra/aws/resources` | viewer | Every resource in the account by service (ECS, EC2, S3, Lambda, RDS and more), read-only; `?account=<id>` picks the account; `?refresh=1` skips the 60 s cache. |
 | `GET /v1/infra/aws/cost` | developer | Spend for 30 days (each call is billed by AWS). |
 | `GET /v1/infra/runtime` | viewer | The Forgeline server, Docker host, running steps, disk. |
 
