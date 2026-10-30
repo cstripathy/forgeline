@@ -100,6 +100,7 @@ type Server struct {
 	awsCache awsCache
 	awsInv   invCache
 	wf       wfEngine
+	guard    guardEngine
 
 	ghApp     ghAppRegistry // GitHub App setups waiting for GitHub
 	ghTokens  sync.Map      // "appID/installationID" -> *ghTokenCache

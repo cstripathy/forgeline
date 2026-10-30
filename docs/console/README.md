@@ -101,3 +101,19 @@ is an ordinary proposal for a different administrator to approve.
 
 ![A run paused at a gate, with the first stage's findings](47-workflow-run.png)
 
+### Guard
+
+The Guard page shows security and hygiene findings across your AWS accounts, worst first, with counts
+by severity. **Scan now** (or an automatic scan every 6 hours to a week) reads each account; it never
+changes anything. Checks include security groups open to the internet, unencrypted EBS volumes and
+databases, public databases, S3 public-access settings, the IAM credential report (root access keys
+and MFA, users with a password and no MFA, access keys older than 90 days), deprecated Lambda
+runtimes, failed CloudFormation stacks, stopped instances, log groups that never expire, and ECR
+repositories that do not scan. A finding keeps its id and first-seen date, moves to Resolved when
+the cause is gone, and a check that could not run (usually permissions) never resolves anything and is
+named on the page. An administrator can **accept** a finding for 1 to 90 days with a reason everyone
+can read; it returns to Open when the time is up. Ask the assistant how to fix one, or give an agent or
+workflow the `guard_findings` tool.
+
+![Guard after a live scan of two AWS accounts](48-guard.png)
+

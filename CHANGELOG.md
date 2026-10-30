@@ -7,6 +7,13 @@ section in the pull request that makes the change; a release moves it under its 
 ## [Unreleased]
 
 ### Added
+- **Guard.** Scheduled or on-demand read-only security and hygiene scans of every connected AWS
+  account: open security groups, unencrypted volumes and databases, public databases, S3 public-access
+  settings, the IAM credential report (root keys and MFA, users without MFA, old access keys),
+  deprecated Lambda runtimes, failed stacks, stopped instances, logs that never expire, and more.
+  Findings keep a stable id and history, resolve themselves when fixed, and are never resolved by a
+  check that could not run. An administrator can accept a finding for up to 90 days with a reason; it
+  reopens afterwards. The assistant and agents read them with `guard_findings`. (note 017)
 - **Workflows.** Stages of agents run in order; steps in a stage run together; a stage can wait
   for an administrator; a workflow can run on an interval. Each step runs an agent at a version
   pinned when the workflow was saved, with each stage's output handed to the next as data. An
