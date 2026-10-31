@@ -163,13 +163,16 @@ func validTools(tools []string, tier string, extra ...string) error {
 			return fmt.Errorf("%q is not a tool the assistant has", t)
 		case seen[t]:
 			return fmt.Errorf("%q is listed twice", t)
-		case t == proposeChangeTool && tier != tierReview:
-			return errors.New("only a review-tier (T1) agent may file change proposals")
+		case isProposalTool(t) && tier != tierReview:
+			return errors.New("only a review-tier (T1) agent may file proposals")
 		}
 		seen[t] = true
 	}
 	return nil
 }
+
+// isProposalTool says whether a tool files something a person will approve. Only T1 agents get them.
+func isProposalTool(t string) bool { return t == proposeChangeTool || t == requestEnvTool }
 
 func validTier(t string) bool { return t == tierAdvisory || t == tierReview }
 
@@ -746,7 +749,7 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"reply": reply, "lookups": lookups, "proposals": sink.proposals, "agent": label, "hash": v.Hash})
+	writeJSON(w, http.StatusOK, map[string]any{"reply": reply, "lookups": lookups, "proposals": sink.proposals, "environments": sink.environments, "agent": label, "hash": v.Hash})
 }
 
 // historyTurns trims a conversation the same way the assistant does.

@@ -93,7 +93,8 @@ type Environment struct {
 	Status          string            `json:"status"`
 	ChangeID        string            `json:"change_id"`
 	DestroyChangeID string            `json:"destroy_change_id,omitempty"`
-	AutoApprove     bool              `json:"auto_approve"` // the request fits the self-service policy
+	AutoApprove     bool              `json:"auto_approve"`     // the request fits the self-service policy
+	ViaAI           bool              `json:"via_ai,omitempty"` // the assistant, an agent or a workflow asked; a person always approves
 	Approved        bool              `json:"approved,omitempty"`
 	DestroyBy       string            `json:"destroy_by,omitempty"`
 	Outcome         string            `json:"outcome,omitempty"` // failed, when a failed deploy is being cleaned up
@@ -128,6 +129,15 @@ var envSpecs = map[string]envSpec{
 			return devBoxPrices[p["InstanceType"]] + 0.10*disk + 3.65 // the instance, the disk, and the public IPv4 address
 		}},
 	"qa-sandbox": {Kind: "QA sandbox", DefaultTTL: 24, Monthly: func(map[string]string) float64 { return 1.0 }},
+	// The three below cost nothing idle; the estimate allows for light test traffic.
+	"lambda-sandbox":   {Kind: "Lambda sandbox", DefaultTTL: 24, Monthly: func(map[string]string) float64 { return 0.5 }},
+	"event-pipeline":   {Kind: "Event pipeline", DefaultTTL: 24, Monthly: func(map[string]string) float64 { return 1.0 }},
+	"workflow-sandbox": {Kind: "Workflow sandbox", DefaultTTL: 24, Monthly: func(map[string]string) float64 { return 0.5 }},
+}
+
+var ownerExpiryParams = []CatalogParam{
+	{Name: "Owner", Label: "Owner", Required: true, pattern: regexp.MustCompile(`^[A-Za-z0-9_.@ -]{1,64}$`)},
+	{Name: "ExpiresAt", Label: "Expires at (UTC)", Required: true, pattern: regexp.MustCompile(`^[0-9TZ:-]{20}$`)},
 }
 
 func init() {
@@ -151,7 +161,16 @@ func init() {
 				{Name: "Owner", Label: "Owner", Required: true, pattern: regexp.MustCompile(`^[A-Za-z0-9_.@ -]{1,64}$`)},
 				{Name: "ExpiresAt", Label: "Expires at (UTC)", Required: true, pattern: regexp.MustCompile(`^[0-9TZ:-]{20}$`)},
 			},
-			body: awsdeploy.QASandboxTemplate})
+			body: awsdeploy.QASandboxTemplate},
+		CatalogTemplate{ID: "lambda-sandbox", Title: "Lambda sandbox",
+			Description:  "One small Lambda function that echoes what it is given, behind a private function URL that needs AWS credentials, with logs kept for three days. Free while idle. Deleted when its time is up.",
+			DefaultStack: "lambda-sandbox", Parameters: ownerExpiryParams, body: awsdeploy.LambdaSandboxTemplate, capabilities: []string{"CAPABILITY_IAM"}},
+		CatalogTemplate{ID: "event-pipeline", Title: "Event pipeline",
+			Description:  "An encrypted SNS topic that fans out to an encrypted SQS queue, with a dead-letter queue for messages that fail five times. Almost free while idle. Deleted when its time is up.",
+			DefaultStack: "event-pipeline", Parameters: ownerExpiryParams, body: awsdeploy.EventPipelineTemplate},
+		CatalogTemplate{ID: "workflow-sandbox", Title: "Workflow sandbox",
+			Description:  "A two-step Step Functions state machine whose role can call nothing in your account, for trying a workflow. Free while idle. Deleted when its time is up.",
+			DefaultStack: "workflow-sandbox", Parameters: ownerExpiryParams, body: awsdeploy.WorkflowSandboxTemplate, capabilities: []string{"CAPABILITY_IAM"}})
 }
 
 type envEngine struct{ mu sync.Mutex }
@@ -378,23 +397,34 @@ func (s *Server) handleRequestEnv(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	ctx := r.Context()
-	p := principalFrom(ctx)
+	e, herr := s.requestEnv(r.Context(), principalFrom(r.Context()), clientIP(r), req, false)
+	if herr != nil {
+		if herr.status >= 500 {
+			s.internalError(w, "requesting the environment", errors.New(herr.msg))
+			return
+		}
+		writeError(w, herr.status, herr.msg)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, e)
+}
+
+// requestEnv records an environment and the cloud change that creates it. viaAI is true when the
+// assistant, an agent or a workflow asked on a person's behalf: such a request never starts on its
+// own, whatever the self-service policy says, because nobody has looked at it yet.
+func (s *Server) requestEnv(ctx context.Context, p Principal, ip string, req envRequest, viaAI bool) (Environment, *httpErr) {
 	req.Name, req.Purpose = strings.TrimSpace(req.Name), strings.TrimSpace(req.Purpose)
 	switch {
 	case !envNameRE.MatchString(req.Name):
-		writeError(w, http.StatusBadRequest, "name it with 3 to 40 letters, digits, spaces or hyphens, starting with a letter")
-		return
+		return Environment{}, refusal(http.StatusBadRequest, "name it with 3 to 40 letters, digits, spaces or hyphens, starting with a letter")
 	case len(req.Purpose) < 5 || len(req.Purpose) > 300:
-		writeError(w, http.StatusBadRequest, "say what it is for in 5 to 300 characters; the approver reads it")
-		return
+		return Environment{}, refusal(http.StatusBadRequest, "say what it is for in 5 to 300 characters; the approver reads it")
 	}
 	pol := s.loadEnvPolicy(ctx)
 	// One environment at a time per person up to the limit, whoever approves.
 	all, err := s.listEnvs(ctx)
 	if err != nil {
-		s.internalError(w, "reading the environments", err)
-		return
+		return Environment{}, refusal(http.StatusInternalServerError, "reading the environments: "+err.Error())
 	}
 	active := 0
 	for _, e := range all {
@@ -403,15 +433,16 @@ func (s *Server) handleRequestEnv(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if active >= pol.MaxActivePerUser {
-		writeError(w, http.StatusConflict, fmt.Sprintf("you already have %d environments; delete one before asking for another (the limit is %d)", active, pol.MaxActivePerUser))
-		return
+		return Environment{}, refusal(http.StatusConflict, fmt.Sprintf("you already have %d environments; delete one before asking for another (the limit is %d)", active, pol.MaxActivePerUser))
 	}
 	tpl, params, herr := s.prepareEnv(ctx, p, req, pol)
 	if herr != nil {
-		writeError(w, herr.status, herr.msg)
-		return
+		return Environment{}, herr
 	}
 	q := quote(pol, req.Template, params, req.TTLHours)
+	if viaAI {
+		q.SelfService = false
+	}
 	id := randomID()[:12]
 	stack := "env-" + strings.Trim(slugRE.ReplaceAllString(strings.ToLower(req.Name), "-"), "-")
 	if len(stack) > 40 {
@@ -419,24 +450,27 @@ func (s *Server) handleRequestEnv(w http.ResponseWriter, r *http.Request) {
 	}
 	stack += "-" + id[:4]
 	reason := fmt.Sprintf("Environment %q for %s: %s (%s, %d hours, about $%.2f)", req.Name, p.Name, req.Purpose, tpl.Title, req.TTLHours, q.ForTTLUSD)
-	c, herr := s.proposeChange(ctx, p, clientIP(r), proposeRequest{Kind: kindStackDeploy, Reason: reason, Template: req.Template, Stack: stack, Params: params})
+	if viaAI {
+		reason += ". Asked for by the assistant; no person has reviewed the request yet"
+	}
+	c, herr := s.proposeChange(ctx, p, ip, proposeRequest{Kind: kindStackDeploy, Reason: truncate(reason, 500), Template: req.Template, Stack: stack, Params: params})
 	if herr != nil {
-		writeError(w, herr.status, herr.msg)
-		return
+		return Environment{}, herr
 	}
 	e := Environment{ID: id, Name: req.Name, Template: req.Template, Purpose: req.Purpose, Owner: p.Name, Stack: stack, Params: params, TTLHours: req.TTLHours,
-		Status: envRequested, ChangeID: c.ID, AutoApprove: q.SelfService, MonthlyUSD: q.MonthlyUSD, RequestedAt: time.Now().UTC()}
+		Status: envRequested, ChangeID: c.ID, AutoApprove: q.SelfService, ViaAI: viaAI, MonthlyUSD: q.MonthlyUSD, RequestedAt: time.Now().UTC()}
 	if err := s.docs.Put(ctx, kindEnv, e.ID, e); err != nil {
-		s.internalError(w, "saving the environment", err)
-		return
+		return Environment{}, refusal(http.StatusInternalServerError, "saving the environment: "+err.Error())
 	}
 	s.pruneEnvs(ctx)
 	how := "waits for an administrator"
 	if q.SelfService {
 		how = "within the self-service policy"
+	} else if viaAI {
+		how = "asked for by the assistant, waits for an administrator"
 	}
-	s.auditReq(r, "env.request", "env/"+e.ID, fmt.Sprintf("%s (%s) %dh $%.2f/month, %s", e.Name, e.Template, e.TTLHours, e.MonthlyUSD, how), true)
-	writeJSON(w, http.StatusAccepted, e)
+	_ = s.audit(ctx, p, ip, "env.request", "env/"+e.ID, fmt.Sprintf("%s (%s) %dh $%.2f/month, %s", e.Name, e.Template, e.TTLHours, e.MonthlyUSD, how), true)
+	return e, nil
 }
 
 func (s *Server) pruneEnvs(ctx context.Context) {

@@ -58,6 +58,8 @@ func assistantLookups() []lookupTool {
 		{"aws_retrieve_skill", `{"skill_name":"...","file":"optional"} load an AWS procedure`, authn.Developer, nil},
 		{"aws_list_regions", `{} list AWS regions`, authn.Developer, nil},
 		{"aws_get_regional_availability", `{"regions":["..."],"resource_type":"...","filters":["..."]} service availability by region`, authn.Developer, nil},
+		{"environment_templates", `{} the temporary environments that can be requested, what each costs and which settings it takes`, authn.Developer, (*Server).lookupEnvTemplates},
+		{"request_environment", `{"template":"id from environment_templates","name":"3 to 40 letters, digits, spaces or hyphens","purpose":"what it is for, for the approver","ttl_hours":"optional, hours it should live","params":{"optional":"settings from environment_templates"}} asks for a temporary environment in the person's name; nothing is created until a different administrator approves it, even if self-service is on`, authn.Developer, (*Server).lookupRequestEnv},
 		{"list_agents", `{} the agents an administrator has set up, with their ids`, authn.Developer, (*Server).lookupListAgents},
 		{"ask_agent", `{"agent":"agent id from list_agents","task":"what you want it to do"} hand a task to an agent and get its answer. It uses only its own tools, as you`, authn.Developer, (*Server).lookupAskAgent},
 		{"search_audit", `{"actor":"optional","action":"optional prefix, e.g. cloud.","limit":"optional, up to 50"} audit entries (administrators only)`, authn.Admin, (*Server).lookupAudit},

@@ -121,6 +121,13 @@ against a stand-in; the real-account run is the next check. Not built: more temp
 budgets across environments, a shared "team" owner, scheduled stop/start to save money, and requesting
 an environment from the assistant.
 
+Later: the assistant, review-tier agents and workflow steps can request an environment
+(`environment_templates`, `request_environment`). It is the person's own request with `ViaAI` set, which
+forces approval by a different administrator regardless of the self-service policy; scheduled workflows
+(no person) and viewers can't ask; the per-person limit applies. Three templates were added (Lambda
+sandbox, event pipeline, workflow sandbox), linted with cfn-lint and exercised through the fake CLI;
+**not deployed to a real account** (no AWS access in the build that added them).
+
 ## Slice 2 sketch (so slice 1 does not paint us into a corner)
 
 ```yaml

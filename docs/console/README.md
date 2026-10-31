@@ -171,6 +171,17 @@ Administrators set the **self-service policy**: which templates, how long, how c
 person. Inside it, requests start in the name of the policy without a second person, and each step is
 in the audit log. It is off until an administrator turns it on.
 
+**Asking the assistant.** The assistant, an agent and a workflow step can request an environment for
+you with `environment_templates` (read-only: the templates, prices and settings) and
+`request_environment`. It is the same request you would make, in your name, with one difference: it
+**never starts on its own**, even when the self-service policy would let you start that template, because no
+person has read it yet. A different administrator approves it as any cloud change, and the request's reason
+says the assistant asked. The per-person limit counts it. An agent needs `request_environment` in its tool
+list and must be review-tier (T1); a workflow that runs on a schedule has no person to own an
+environment and can't ask. The assistant's reply and the agent's chat link to Environments.
+
+![An environment the assistant asked for, after approval](60-environment-asked-by-assistant.png)
+
 ![Environments with one waiting for nobody and one deleted](51-environments.png)
 
 ![The request form pricing a request against the policy](52-environment-request.png)

@@ -7,7 +7,7 @@ import { workflowList, workflowForm } from './workflows.js';
 // Agents and skills. Every save is a new version; old versions are never edited, and a rollback is
 // a copy of an old version saved as the newest one.
 
-const tierPill = (t) => h('span', { class: t === 'T1' ? 'pill-wait' : 'pill-idle', title: t === 'T1' ? 'May file change proposals, which a person approves' : 'Reads and advises only' }, t === 'T1' ? 'T1 · proposes' : 'T0 · advises');
+const tierPill = (t) => h('span', { class: t === 'T1' ? 'pill-wait' : 'pill-idle', title: t === 'T1' ? 'May file change proposals and ask for environments, which a person approves' : 'Reads and advises only' }, t === 'T1' ? 'T1 · proposes' : 'T0 · advises');
 const shortHash = (x) => h('code', { class: 'text-xs', title: x }, x.slice(0, 12));
 
 /** A line diff: lines only in `a` are removed, only in `b` are added. Small inputs, so a plain LCS. */
@@ -207,7 +207,8 @@ function chatPanel(ag, v) {
       history.push({ role: 'user', content: msg }, { role: 'assistant', content: r.reply });
       wait.replaceWith(bubble('agent', h('div', { class: 'whitespace-pre-wrap', 'data-reply': '' }, r.reply),
         r.lookups?.length ? h('div', { class: 'muted mt-2 text-xs' }, 'Looked up: ' + r.lookups.join(', ')) : null,
-        r.proposals?.length ? h('div', { class: 'mt-2 text-xs' }, 'Filed: ', r.proposals.map(id => h('a', { class: 'underline', href: '#/proposals/' + id }, id))) : null));
+        r.proposals?.length ? h('div', { class: 'mt-2 text-xs' }, 'Filed: ', r.proposals.map(id => h('a', { class: 'underline', href: '#/proposals/' + id }, id))) : null,
+        r.environments?.length ? h('div', { class: 'mt-2 text-xs' }, 'Environment requested: ', h('a', { class: 'underline', href: '#/environments' }, 'see Environments')) : null));
     } catch (err) { wait.replaceWith(bubble('agent', errorBox(err.message))); }
     send.disabled = false; list.scrollTop = list.scrollHeight;
   } }, input, send);
@@ -220,7 +221,7 @@ function agentForm(ag, skills, tools, after, base) {
     const name = h('input', { id: 'agent-name', class: 'input', maxlength: '60', value: ag ? ag.name : '', placeholder: 'Cost watcher' });
     const desc = h('input', { id: 'agent-desc', class: 'input', maxlength: '300', value: ag ? ag.description : '', placeholder: 'What it is for, in one line' });
     const ins = h('textarea', { id: 'agent-ins', class: 'input h-32 text-sm', maxlength: '4096', placeholder: 'You look for idle or oversized resources and propose the smallest safe change. Ask before assuming.' }, cur ? cur.instructions : '');
-    const tier = h('select', { id: 'agent-tier', class: 'input' }, [['T0', 'T0: reads and advises'], ['T1', 'T1: may also file change proposals']].map(([v, l]) => h('option', { value: v, selected: cur?.tier === v }, l)));
+    const tier = h('select', { id: 'agent-tier', class: 'input' }, [['T0', 'T0: reads and advises'], ['T1', 'T1: may also file proposals and ask for environments']].map(([v, l]) => h('option', { value: v, selected: cur?.tier === v }, l)));
     const picked = new Set((cur?.skills || []).map(p => p.id));
     const pins = Object.fromEntries((cur?.skills || []).map(p => [p.id, p.n]));
     const skillBoxes = skills.length ? skills.map(s => h('label', { class: 'flex items-center gap-2 text-sm' }, h('input', { type: 'checkbox', 'data-skill': s.id, checked: picked.has(s.id), onchange: (e) => { if (!e.target.checked) delete pins[s.id]; } }), s.name, h('span', { class: 'muted text-xs' }, picked.has(s.id) ? `pinned v${pins[s.id]}, latest v${s.current}` : `latest v${s.current}`))) : [h('p', { class: 'muted text-sm' }, 'No skills yet. Create some under Skills.')];

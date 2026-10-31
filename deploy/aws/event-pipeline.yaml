@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Forgeline event pipeline: an encrypted SNS topic that fans out to an encrypted SQS queue, with a
+  dead-letter queue for messages that fail five times. It costs almost nothing idle and is deleted
+  with its stack. See deploy/aws/README.md.
+
+Parameters:
+  Owner:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9_.@ -]{1,64}$"
+  ExpiresAt:
+    Type: String
+    AllowedPattern: "^[0-9TZ:-]{20}$"
+
+Resources:
+  DeadLetters:
+    Type: AWS::SQS::Queue
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 86400
+      Tags:
+        - { Key: forgeline:environment, Value: event-pipeline }
+        - { Key: Owner, Value: !Ref Owner }
+        - { Key: ExpiresAt, Value: !Ref ExpiresAt }
+
+  Queue:
+    Type: AWS::SQS::Queue
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 86400
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetters.Arn
+        maxReceiveCount: 5
+      Tags:
+        - { Key: forgeline:environment, Value: event-pipeline }
+        - { Key: Owner, Value: !Ref Owner }
+        - { Key: ExpiresAt, Value: !Ref ExpiresAt }
+
+  Topic:
+    Type: AWS::SNS::Topic
+    Properties:
+      KmsMasterKeyId: alias/aws/sns
+      Tags:
+        - { Key: forgeline:environment, Value: event-pipeline }
+        - { Key: Owner, Value: !Ref Owner }
+        - { Key: ExpiresAt, Value: !Ref ExpiresAt }
+
+  QueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref Queue]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: sns.amazonaws.com }
+            Action: sqs:SendMessage
+            Resource: !GetAtt Queue.Arn
+            Condition:
+              ArnEquals: { "aws:SourceArn": !Ref Topic }
+
+  Subscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref Topic
+      Protocol: sqs
+      Endpoint: !GetAtt Queue.Arn
+      RawMessageDelivery: true
+
+Outputs:
+  TopicArn:
+    Value: !Ref Topic
+  QueueUrl:
+    Value: !Ref Queue
+  DeadLetterQueueUrl:
+    Value: !Ref DeadLetters

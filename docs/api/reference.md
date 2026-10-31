@@ -108,7 +108,7 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | `POST /v1/ai/workflow-runs/{id}/release` | admin | Let a run waiting at a gate start its next stage. |
 | `POST /v1/ai/workflow-runs/{id}/cancel` | developer | Cancel a run (its starter, or an administrator). |
 | `GET /v1/envs` | developer | Environments (temporary stacks) with owner, status, expiry and cost estimate. |
-| `GET /v1/envs/templates` | developer | The environment templates (developer box, QA sandbox) with the options a person can set. |
+| `GET /v1/envs/templates` | developer | The environment templates (developer box, QA sandbox, Lambda sandbox, event pipeline, workflow sandbox) with the options a person can set. |
 | `GET /v1/envs/policy` | developer | The self-service policy. |
 | `PUT /v1/envs/policy` | admin | Set the self-service policy: templates, time and cost limits, environments per person. |
 | `POST /v1/envs/estimate` | developer | The cost of a request and whether the policy lets it start without approval. |
@@ -193,7 +193,7 @@ Only repositories on the GitHub allow list. A workflow can only be started on a 
 | `POST /v1/ai/proposals/{id}/approve` | admin | Body: `hash` (of the text you read), `note`. Not allowed for the person who proposed it. Applies the approved script through the AWS MCP Server and returns 202; poll the proposal. |
 | `POST /v1/ai/proposals/{id}/reject` | admin | Rejects a waiting proposal. |
 | `POST /v1/ai/proposals/{id}/cancel` | developer | The proposer or an administrator withdraws a waiting proposal. |
-| `POST /v1/assistant/chat` | developer | Body: `message`, `history`, `context` (the page: run, pipeline, infra or overview). Returns `reply`, the read-only `lookups` it ran and any `proposals` it filed. 20 a minute per person. |
+| `POST /v1/assistant/chat` | developer | Body: `message`, `history`, `context` (the page: run, pipeline, infra or overview). Returns `reply`, the read-only `lookups` it ran any `proposals` it filed and any `environments` it asked for (requested, never started: a different administrator approves). 20 a minute per person. |
 
 ## The pipeline schema
 

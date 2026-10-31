@@ -401,7 +401,7 @@ func (s *Server) lookupProposeChange(ctx context.Context, raw json.RawMessage) (
 }
 
 type lookupSinkKey struct{}
-type lookupSink struct{ proposals []string }
+type lookupSink struct{ proposals, environments []string }
 
 func (s *Server) handleListProposals(w http.ResponseWriter, r *http.Request) {
 	docs, err := s.docs.List(r.Context(), kindAIProposal, docstore.ListOptions{Desc: true, Limit: 100})

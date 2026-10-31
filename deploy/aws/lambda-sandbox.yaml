@@ -1,0 +1,78 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Forgeline Lambda sandbox: one small function that echoes what it is given, a log group that keeps its
+  logs for three days, and a private function URL that needs AWS credentials. It costs nothing idle and
+  is deleted with its stack. See deploy/aws/README.md.
+
+Parameters:
+  Owner:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9_.@ -]{1,64}$"
+  ExpiresAt:
+    Type: String
+    AllowedPattern: "^[0-9TZ:-]{20}$"
+
+Resources:
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 3
+      Tags:
+        - { Key: forgeline:environment, Value: lambda-sandbox }
+        - { Key: Owner, Value: !Ref Owner }
+        - { Key: ExpiresAt, Value: !Ref ExpiresAt }
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: write-own-logs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "${Logs.Arn}:*"
+      Tags:
+        - { Key: forgeline:environment, Value: lambda-sandbox }
+        - { Key: Owner, Value: !Ref Owner }
+        - { Key: ExpiresAt, Value: !Ref ExpiresAt }
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt Role.Arn
+      Timeout: 10
+      MemorySize: 128
+      LoggingConfig:
+        LogGroup: !Ref Logs
+      Code:
+        ZipFile: |
+          import json
+
+          def handler(event, context):
+              return {"statusCode": 200, "body": json.dumps({"echo": event})}
+      Tags:
+        - { Key: forgeline:environment, Value: lambda-sandbox }
+        - { Key: Owner, Value: !Ref Owner }
+        - { Key: ExpiresAt, Value: !Ref ExpiresAt }
+
+  Url:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt Function.Arn
+      AuthType: AWS_IAM
+
+Outputs:
+  FunctionName:
+    Value: !Ref Function
+  FunctionUrl:
+    Value: !GetAtt Url.FunctionUrl

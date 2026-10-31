@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Forgeline workflow sandbox: a Step Functions state machine of two steps that can call nothing in your
+  account, for trying a workflow. It costs nothing idle and is deleted with its stack. See
+  deploy/aws/README.md.
+
+Parameters:
+  Owner:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9_.@ -]{1,64}$"
+  ExpiresAt:
+    Type: String
+    AllowedPattern: "^[0-9TZ:-]{20}$"
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: states.amazonaws.com }
+            Action: sts:AssumeRole
+      Tags:
+        - { Key: forgeline:environment, Value: workflow-sandbox }
+        - { Key: Owner, Value: !Ref Owner }
+        - { Key: ExpiresAt, Value: !Ref ExpiresAt }
+
+  Machine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt Role.Arn
+      DefinitionString: |
+        {
+          "Comment": "A sandbox with nothing to call",
+          "StartAt": "Greet",
+          "States": {
+            "Greet": { "Type": "Pass", "Result": {"greeting": "hello"}, "Next": "Done" },
+            "Done": { "Type": "Succeed" }
+          }
+        }
+      Tags:
+        - { Key: forgeline:environment, Value: workflow-sandbox }
+        - { Key: Owner, Value: !Ref Owner }
+        - { Key: ExpiresAt, Value: !Ref ExpiresAt }
+
+Outputs:
+  StateMachineArn:
+    Value: !Ref Machine

@@ -17,3 +17,18 @@ var DevBoxTemplate string
 //
 //go:embed qa-sandbox.yaml
 var QASandboxTemplate string
+
+// LambdaSandboxTemplate is deploy/aws/lambda-sandbox.yaml: one small function behind a private URL.
+//
+//go:embed lambda-sandbox.yaml
+var LambdaSandboxTemplate string
+
+// EventPipelineTemplate is deploy/aws/event-pipeline.yaml: an SNS topic, an SQS queue and a dead-letter queue.
+//
+//go:embed event-pipeline.yaml
+var EventPipelineTemplate string
+
+// WorkflowSandboxTemplate is deploy/aws/workflow-sandbox.yaml: a Step Functions state machine that calls nothing.
+//
+//go:embed workflow-sandbox.yaml
+var WorkflowSandboxTemplate string

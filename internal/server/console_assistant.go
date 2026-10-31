@@ -227,10 +227,11 @@ type chatRequest struct {
 
 // ChatReply is the assistant's answer.
 type ChatReply struct {
-	Reply     string   `json:"reply"`
-	Context   string   `json:"context"`             // what the answer was based on, for display
-	Proposals []string `json:"proposals,omitempty"` // change proposals the assistant filed
-	Lookups   []string `json:"lookups,omitempty"`   // read-only lookups the assistant ran to answer
+	Reply        string   `json:"reply"`
+	Context      string   `json:"context"`                // what the answer was based on, for display
+	Proposals    []string `json:"proposals,omitempty"`    // change proposals the assistant filed
+	Environments []string `json:"environments,omitempty"` // environments the assistant asked for
+	Lookups      []string `json:"lookups,omitempty"`      // read-only lookups the assistant ran to answer
 }
 
 const assistantSystem = `You are the assistant built into Forgeline, a CI/CD platform. You help the signed-in person understand their pipelines, runs, logs and cloud account, and you draft pipeline files.
@@ -303,7 +304,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, ChatReply{Reply: reply, Context: ctxNote, Lookups: lookups, Proposals: sink.proposals})
+	writeJSON(w, http.StatusOK, ChatReply{Reply: reply, Context: ctxNote, Lookups: lookups, Proposals: sink.proposals, Environments: sink.environments})
 }
 
 // assistantContext gathers what the assistant may see: only things the console already shows to

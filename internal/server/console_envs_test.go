@@ -83,7 +83,7 @@ func TestEnvTemplatesAndEstimates(t *testing.T) {
 	if !strings.Contains(string(c.dev.expect(200, "GET", "/v1/envs/templates", nil)), `"params":[]`) {
 		t.Error("a template with no options must send an empty list, which the console maps over")
 	}
-	if len(got) != 2 || got["dev-box"] != 20.65 || got["qa-sandbox"] != 1 || got["forgeline-demo"] != 0 {
+	if len(got) != 5 || got["dev-box"] != 20.65 || got["qa-sandbox"] != 1 || got["lambda-sandbox"] != 0.5 || got["event-pipeline"] != 1 || got["workflow-sandbox"] != 0.5 || got["forgeline-demo"] != 0 {
 		t.Errorf("templates = %v", got)
 	}
 	c.view.expect(403, "GET", "/v1/envs/templates", nil)

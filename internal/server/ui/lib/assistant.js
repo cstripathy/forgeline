@@ -105,6 +105,7 @@ function build(close, role) {
       const r = await post('/v1/assistant/chat', { message: q, history, context: { kind: c.kind, id: c.id } });
       history.push({ role: 'user', content: q }, { role: 'assistant', content: r.reply });
       wait.replaceWith(bubble('assistant', ...replyNodes(r.reply), (r.proposals || []).length ? h('div', { class: 'rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200' }, 'Filed for review (nothing has run): ', ...r.proposals.map(id => h('a', { href: '#/proposals/' + id, class: 'font-semibold underline', onclick: close }, 'proposal ' + id))) : null,
+        (r.environments || []).length ? h('div', { class: 'rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200' }, 'Environment requested (nothing exists until an administrator approves): ', h('a', { href: '#/environments', class: 'font-semibold underline', onclick: close }, 'see Environments')) : null,
         h('div', { class: 'muted text-[11px]' }, 'Based on: ' + r.context + ((r.lookups || []).length ? ' · looked up: ' + r.lookups.join(', ') : ''))));
     } catch (e) {
       wait.replaceWith(h('div', {}, errorBox(e.message)));
