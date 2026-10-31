@@ -625,6 +625,9 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if resetSessions {
 		s.dropSessions(r.Context(), u.ID)
+		if u.Disabled {
+			s.dropTokensOf(r.Context(), u.ID) // re-enabling a person must not bring old tokens back
+		}
 	}
 	s.auditReq(r, "user.update", "user/"+u.ID, strings.Join(changes, ", "), true)
 	writeJSON(w, http.StatusOK, u.json())
@@ -667,6 +670,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.dropSessions(r.Context(), u.ID)
+	s.dropTokensOf(r.Context(), u.ID)
 	s.auditReq(r, "user.delete", "user/"+u.ID, "", true)
 	w.WriteHeader(http.StatusNoContent)
 }

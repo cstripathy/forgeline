@@ -435,7 +435,8 @@ func (s *Server) lookupProposeChange(ctx context.Context, raw json.RawMessage) (
 	if sink, ok := ctx.Value(lookupSinkKey{}).(*lookupSink); ok {
 		sink.proposals = append(sink.proposals, prop.ID)
 	}
-	s.audit(ctx, p, "", "ai.proposal.create", "ai-proposal/"+prop.ID, fmt.Sprintf("%s (%s risk, %d calls%s)", a.Title, prop.Risk, len(calls), map[bool]string{true: ", account " + acct.Name + " " + acct.AccountID, false: ""}[acct.ID != ""]), true)
+	ip, _ := ctx.Value(mcpIPKey{}).(string)
+	s.audit(ctx, p, ip, "ai.proposal.create", "ai-proposal/"+prop.ID, fmt.Sprintf("%s (%s risk, %d calls%s)", a.Title, prop.Risk, len(calls), map[bool]string{true: ", account " + acct.Name + " " + acct.AccountID, false: ""}[acct.ID != ""]), true)
 	return fmt.Sprintf("Proposal %s filed (%s risk). Nothing has run. A different administrator must review and approve it in the console under Proposals; tell the person that.", prop.ID, prop.Risk), nil
 }
 

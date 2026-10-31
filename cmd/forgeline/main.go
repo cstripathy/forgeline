@@ -23,6 +23,8 @@ Usage:
   forgeline server     start the control plane (REST API and runner); see "forgeline server -h"
   forgeline submit [--server URL] [--wait] <pipeline.yaml>
                        send a pipeline to a server
+  forgeline mcp [--server URL]
+                       a stdio MCP server that forwards to a Forgeline server's /mcp endpoint
   forgeline help       show this message
 `
 
@@ -66,6 +68,10 @@ func runWith(args []string, stdout, stderr io.Writer, ex executor.Executor) int 
 		ctx, stop := signalContext()
 		defer stop()
 		return runSubmit(ctx, args[1:], stdout, stderr, os.Getenv)
+	case "mcp":
+		ctx, stop := signalContext()
+		defer stop()
+		return runMCP(ctx, args[1:], os.Stdin, stdout, stderr, os.Getenv)
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return 0

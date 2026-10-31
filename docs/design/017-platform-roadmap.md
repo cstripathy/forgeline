@@ -156,7 +156,7 @@ their own chat.
 6. SSO and SCIM for people, and an organisation-wide audit export (SIEM).
 7. Pipeline templates and a pipeline linter in the editor.
 8. Ephemeral preview environments per pull request.
-9. A Forgeline MCP server so Claude Code and other agents can read runs and file proposals.
+9. ~~A Forgeline MCP server so Claude Code and other agents can read runs and file proposals.~~ Built: note 020.
 10. Run insights: flaky steps, slowest steps, cache hit rates.
 
 ## Not decided

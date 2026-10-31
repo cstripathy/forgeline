@@ -21,6 +21,14 @@ section in the pull request that makes the change; a release moves it under its 
   each is bound to the account, its AWS account number, profile and region, runs through that
   account's own signing proxy, and is canceled if the account is removed or changes are switched off.
   (note 021)
+- **Forgeline as an MCP server.** Claude Code and other AI clients can connect to `/mcp` (or through
+  `forgeline mcp` for stdio) with a personal API token made on the Account page. They get the
+  assistant's read-only lookups (runs, why a run failed, pipelines, Guard findings, AWS and Kubernetes
+  views, agents, the audit log for administrators) and two propose-only tools whose changes a
+  different administrator must approve. A token acts as its person with at most the role you give it
+  (a demoted or disabled person loses it at once), expires, is stored as a hash, and works nowhere
+  else. Every call is audited, output is cut and credential formats are masked, and calls are
+  rate-limited. Raw AWS access, agents and plugin tools are not exposed. (note 020)
 - **Pipeline guard.** Guard now reads saved pipelines and recent run logs, with no cloud account
   needed: unpinned images, secrets with open network, agent steps holding extra secrets, credentials
   or secret-looking values written into a pipeline file, `curl | sh`, scripts that print secrets, and
