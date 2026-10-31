@@ -7,6 +7,11 @@ section in the pull request that makes the change; a release moves it under its 
 ## [Unreleased]
 
 ### Added
+- **Plugin runner (internal, not yet exposed).** `internal/plugin` runs an MCP server from a
+  digest-pinned container image, one container per call: read-only filesystem, no capabilities,
+  non-root, no network unless granted, memory, cpu, process and time limits, output cut at a size
+  limit, secrets passed through the environment and never on a command line, and the container
+  removed after a timeout. Nothing in the console uses it yet. (note 018, step 1)
 - **Marketplace.** A catalogue of ready-made skills and agents (failed-run triage, cost watch,
   security review, cluster health). Each package shows what its agents may read and which tier they
   could reach before anyone installs it, and carries a sha256 that is checked when the server starts

@@ -1,6 +1,6 @@
 # 018 Plugins: MCP servers in containers
 
-Status: **design, not built**. Follows note 017 slice 7 (marketplace). A plugin gives the assistant
+Status: **step 1 built** (`internal/plugin`, the runner; not yet used by the console). Steps 2 to 4 are not built. Follows note 017 slice 7 (marketplace). A plugin gives the assistant
 and agents new read-only lookups from a third party's MCP server. It is the one place Forgeline would
 run code it did not write, so the rules here are strict and the first version is small.
 
@@ -47,7 +47,7 @@ is on by default.
 
 ## Build plan
 
-1. `internal/plugin`: build the `docker run` argv from a fixed template, run one call, enforce the
+1. (built) `internal/plugin`: build the `docker run` argv from a fixed template, run one call, enforce the
    timeout and output cap. Tested with a fake `docker` script that records its argv, so the flags are
    asserted exactly; one real run with a tiny image behind a skipped-if-no-Docker test.
 2. Manifest and package kind `plugin`; the install flow and permissions screen; grants on the install
