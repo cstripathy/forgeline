@@ -14,7 +14,8 @@ PATH=/tmp/fake-aws/bin:$PATH FAKE_AWS_STATE=/tmp/fake-aws/state.json \
   FORGELINE_TOKEN=a-long-dev-token-123 ./bin/forgeline server --listen 127.0.0.1:8081 --data-dir /tmp/fl-sim
 ```
 
-In the console create the administrator, a second administrator and a developer, connect AWS
+To try several accounts, set `FAKE_AWS_ACCOUNTS="staging=444455556666"`: that profile is then a separate account with
+its own state file. In the console create the administrator, a second administrator and a developer, connect AWS
 (leave the profile empty, any region), and walk a proposal through approval. Delete the state
 file to start over.
 

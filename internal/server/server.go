@@ -93,6 +93,7 @@ type Server struct {
 	setupMu  sync.Mutex                                                 // serialises first-run setup
 	userMu   sync.Mutex                                                 // serialises changes to accounts, for the last-admin rule
 	pipeMu   sync.Mutex                                                 // serialises pipeline edits, for the version check
+	acctMu   sync.Mutex                                                 // serialises changes to an added account's settings
 	aiMu     sync.Mutex                                                 // guards aiBusy and proposal decisions
 	aiBusy   bool                                                       // an approved AI change is being applied
 	mcpStart func(ctx context.Context, st awsSettings) (mcpConn, error) // replaced in tests

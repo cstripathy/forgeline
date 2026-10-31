@@ -22,6 +22,8 @@ type fakeMCP struct {
 	tools   []string
 	sneak   string // "service Operation" to report in addition
 	started int
+	starts  []awsSettings // the connection each proxy was started for
+	runs    []awsSettings // the connection each run_script call went through
 	slow    chan struct{} // when set, run_script waits for it
 	failErr string
 }
@@ -42,14 +44,18 @@ func (f *fakeMCP) count(tool string) int {
 	return n
 }
 
-func (f *fakeMCP) start(_ context.Context, _ awsSettings) (mcpConn, error) {
+func (f *fakeMCP) start(_ context.Context, st awsSettings) (mcpConn, error) {
 	f.mu.Lock()
 	f.started++
+	f.starts = append(f.starts, st)
 	f.mu.Unlock()
-	return &fakeMCPConn{f}, nil
+	return &fakeMCPConn{f, st}, nil
 }
 
-type fakeMCPConn struct{ f *fakeMCP }
+type fakeMCPConn struct {
+	f  *fakeMCP
+	st awsSettings
+}
 
 func (c *fakeMCPConn) Close() {}
 func (c *fakeMCPConn) Tools(context.Context) ([]mcp.Tool, error) {
@@ -64,6 +70,9 @@ func (c *fakeMCPConn) Call(_ context.Context, name string, args map[string]any) 
 	f.mu.Lock()
 	f.calls = append(f.calls, name)
 	f.args = append(f.args, args)
+	if name == "aws___run_script" {
+		f.runs = append(f.runs, c.st)
+	}
 	slow, sneak, fail := f.slow, f.sneak, f.failErr
 	f.mu.Unlock()
 	if fail != "" {

@@ -55,9 +55,14 @@ func (s *Server) loadAWSMCP(ctx context.Context) awsMCPSettings {
 	return st
 }
 
-// startAWSMCP launches the signing proxy for the console's AWS connection.
+// startAWSMCP launches the signing proxy for the primary AWS connection.
 func (s *Server) startAWSMCP(ctx context.Context) (mcpConn, error) {
-	st := s.loadAWS(ctx)
+	return s.startAWSMCPFor(ctx, s.loadAWS(ctx))
+}
+
+// startAWSMCPFor launches a signing proxy for one connection: the profile and region of that
+// account only. The primary's single sign-on session is used only when st is the primary.
+func (s *Server) startAWSMCPFor(ctx context.Context, st awsSettings) (mcpConn, error) {
 	if !st.Enabled {
 		return nil, errors.New("connect an AWS account first (Infrastructure → AWS)")
 	}
@@ -103,10 +108,15 @@ func (s *Server) startAWSMCP(ctx context.Context) (mcpConn, error) {
 // callAWSMCP opens a connection, makes one call and closes it. A connection per call keeps the
 // server free of long-lived child processes; the cost is a second or two of start-up.
 func (s *Server) callAWSMCP(ctx context.Context, tool string, args map[string]any) (mcp.Result, error) {
+	return s.callAWSMCPFor(ctx, s.loadAWS(ctx), tool, args)
+}
+
+// callAWSMCPFor is callAWSMCP against a chosen account's connection.
+func (s *Server) callAWSMCPFor(ctx context.Context, st awsSettings, tool string, args map[string]any) (mcp.Result, error) {
 	if !s.loadAWSMCP(ctx).Enabled {
 		return mcp.Result{}, errors.New("the AWS MCP Server is not turned on (Infrastructure → AWS)")
 	}
-	c, err := s.startAWSMCP(ctx)
+	c, err := s.startAWSMCPFor(ctx, st)
 	if err != nil {
 		return mcp.Result{}, err
 	}
@@ -232,7 +242,8 @@ func sameCalls(declared, ran []scriptCall) (extra string, ok bool) {
 
 func (s *Server) lookupAWSScript(ctx context.Context, raw json.RawMessage) (string, error) {
 	var a struct {
-		Code string `json:"code"`
+		Code    string `json:"code"`
+		Account string `json:"account"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return "", err
@@ -241,7 +252,11 @@ func (s *Server) lookupAWSScript(ctx context.Context, raw json.RawMessage) (stri
 	if err != nil {
 		return "", err
 	}
-	res, err := s.callAWSMCP(ctx, scriptToolName, map[string]any{"code": a.Code})
+	st, err := s.awsFor(ctx, a.Account)
+	if err != nil {
+		return "", err
+	}
+	res, err := s.callAWSMCPFor(ctx, st, scriptToolName, map[string]any{"code": a.Code})
 	if err != nil {
 		return "", err
 	}
@@ -297,24 +312,26 @@ func (s *Server) lookupAWSDoc(name string) func(*Server, context.Context, json.R
 // AIProposal is a change the assistant drafted. Nothing in it runs until a different administrator
 // approves exactly this text.
 type AIProposal struct {
-	ID         string       `json:"id"`
-	Title      string       `json:"title"`
-	Reason     string       `json:"reason"`
-	Code       string       `json:"code"`
-	Calls      []scriptCall `json:"calls"`
-	Hash       string       `json:"hash"`
-	Risk       string       `json:"risk"`
-	Target     string       `json:"target"` // profile and region it was drafted for
-	Status     string       `json:"status"`
-	ProposedBy string       `json:"proposed_by"`
-	ProposedAt time.Time    `json:"proposed_at"`
-	DecidedBy  string       `json:"decided_by,omitempty"`
-	DecidedAt  *time.Time   `json:"decided_at,omitempty"`
-	Note       string       `json:"note,omitempty"`
-	Result     string       `json:"result,omitempty"`
-	RanCalls   []scriptCall `json:"ran_calls,omitempty"`
-	FinishedAt *time.Time   `json:"finished_at,omitempty"`
-	ViaAI      bool         `json:"via_ai"`
+	ID          string       `json:"id"`
+	Title       string       `json:"title"`
+	Reason      string       `json:"reason"`
+	Code        string       `json:"code"`
+	Calls       []scriptCall `json:"calls"`
+	Hash        string       `json:"hash"`
+	Risk        string       `json:"risk"`
+	Target      string       `json:"target"`                 // what it was drafted for: profile and region, and for an added account its id and AWS account number
+	Account     string       `json:"account,omitempty"`      // an added account's id; empty is the primary connection
+	AccountName string       `json:"account_name,omitempty"` // for the approver
+	Status      string       `json:"status"`
+	ProposedBy  string       `json:"proposed_by"`
+	ProposedAt  time.Time    `json:"proposed_at"`
+	DecidedBy   string       `json:"decided_by,omitempty"`
+	DecidedAt   *time.Time   `json:"decided_at,omitempty"`
+	Note        string       `json:"note,omitempty"`
+	Result      string       `json:"result,omitempty"`
+	RanCalls    []scriptCall `json:"ran_calls,omitempty"`
+	FinishedAt  *time.Time   `json:"finished_at,omitempty"`
+	ViaAI       bool         `json:"via_ai"`
 }
 
 const (
@@ -368,7 +385,7 @@ func (s *Server) loadProposal(ctx context.Context, id string) (AIProposal, error
 // lookupProposeChange is the assistant's only way to ask for a change: it files a proposal.
 func (s *Server) lookupProposeChange(ctx context.Context, raw json.RawMessage) (string, error) {
 	var a struct {
-		Title, Reason, Code string
+		Title, Reason, Code, Account string
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return "", err
@@ -384,19 +401,41 @@ func (s *Server) lookupProposeChange(ctx context.Context, raw json.RawMessage) (
 	if err != nil {
 		return "", err
 	}
-	st := s.loadAWS(ctx)
+	st, acct, target, err := s.writeTarget(ctx, a.Account)
+	if err != nil {
+		return "", err
+	}
+	if acct.ID != "" {
+		if problem, err := s.verifyAccountIdentity(ctx, st, acct); err != nil {
+			return "", err
+		} else if problem != "" {
+			return "", errors.New(problem + "; an administrator must remove and add the account again")
+		}
+		a.Title += " in " + acct.Name
+	}
 	p := principalFrom(ctx)
-	target := fmt.Sprintf("%s/%s", st.Profile, st.Region)
 	prop := AIProposal{ID: authn.NewID(), Title: a.Title, Reason: a.Reason, Code: a.Code, Calls: calls,
 		Hash: proposalHash(a.Title, a.Code, target), Risk: riskOf(calls), Target: target, Status: apProposed,
-		ProposedBy: p.Name, ProposedAt: time.Now().UTC(), ViaAI: true}
+		ProposedBy: p.Name, ProposedAt: time.Now().UTC(), ViaAI: true, Account: acct.ID, AccountName: acct.Name}
 	if err := s.docs.Put(ctx, kindAIProposal, prop.ID, prop); err != nil {
 		return "", errors.New("could not save the proposal")
+	}
+	// The account may have lost its permission between the check above and the save.
+	if acct.ID != "" {
+		s.acctMu.Lock()
+		_, _, _, werr := s.writeTarget(ctx, acct.ID)
+		s.acctMu.Unlock()
+		if werr != nil {
+			now := time.Now().UTC()
+			prop.Status, prop.FinishedAt, prop.Note = apCancelled, &now, "canceled automatically: "+werr.Error()
+			_ = s.docs.Put(ctx, kindAIProposal, prop.ID, prop)
+			return "", errors.New("changes for that account were turned off while this was being filed; nothing was proposed")
+		}
 	}
 	if sink, ok := ctx.Value(lookupSinkKey{}).(*lookupSink); ok {
 		sink.proposals = append(sink.proposals, prop.ID)
 	}
-	s.audit(ctx, p, "", "ai.proposal.create", "ai-proposal/"+prop.ID, fmt.Sprintf("%s (%s risk, %d calls)", a.Title, prop.Risk, len(calls)), true)
+	s.audit(ctx, p, "", "ai.proposal.create", "ai-proposal/"+prop.ID, fmt.Sprintf("%s (%s risk, %d calls%s)", a.Title, prop.Risk, len(calls), map[bool]string{true: ", account " + acct.Name + " " + acct.AccountID, false: ""}[acct.ID != ""]), true)
 	return fmt.Sprintf("Proposal %s filed (%s risk). Nothing has run. A different administrator must review and approve it in the console under Proposals; tell the person that.", prop.ID, prop.Risk), nil
 }
 
@@ -442,6 +481,15 @@ func (s *Server) handleApproveProposal(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	who := principalFrom(ctx)
+	// An added account's profile must still be the AWS account the proposal was drafted for. This
+	// calls out to AWS, so it is done before taking the lock; the decision below re-checks the rest.
+	var drift string
+	var driftErr error
+	if pre, perr := s.loadProposal(ctx, r.PathValue("id")); perr == nil && pre.Account != "" {
+		if pst, pacct, _, werr := s.writeTarget(ctx, pre.Account); werr == nil {
+			drift, driftErr = s.verifyAccountIdentity(ctx, pst, pacct)
+		}
+	}
 	s.aiMu.Lock()
 	p, err := s.loadProposal(ctx, r.PathValue("id"))
 	if errors.Is(err, docstore.ErrNotFound) {
@@ -458,7 +506,7 @@ func (s *Server) handleApproveProposal(w http.ResponseWriter, r *http.Request) {
 		s.auditReq(r, "ai.proposal.approve", "ai-proposal/"+p.ID, "refused: "+msg, false)
 		writeError(w, status, msg)
 	}
-	st := s.loadAWS(ctx)
+	st, _, target, werr := s.writeTarget(ctx, p.Account)
 	switch {
 	case p.Status == apExpired:
 		refuse(http.StatusConflict, "this proposal is older than 24 hours; ask for it again so it matches the account today")
@@ -472,7 +520,10 @@ func (s *Server) handleApproveProposal(w http.ResponseWriter, r *http.Request) {
 	case req.Hash != p.Hash || proposalHash(p.Title, p.Code, p.Target) != p.Hash:
 		refuse(http.StatusConflict, "the text you approved is not the text of this proposal; reload and read it again")
 		return
-	case !st.Enabled || fmt.Sprintf("%s/%s", st.Profile, st.Region) != p.Target:
+	case werr != nil:
+		refuse(http.StatusConflict, "this was proposed for an account that can no longer take changes ("+werr.Error()+"); ask for it again")
+		return
+	case !st.Enabled || target != p.Target:
 		refuse(http.StatusConflict, "the AWS connection changed since this was proposed; ask for it again")
 		return
 	case !s.loadAWSMCP(ctx).Enabled:
@@ -480,6 +531,14 @@ func (s *Server) handleApproveProposal(w http.ResponseWriter, r *http.Request) {
 		return
 	case s.aiBusy:
 		refuse(http.StatusConflict, "another approved change is being applied; try again in a moment")
+		return
+	}
+	if driftErr != nil {
+		refuse(http.StatusBadGateway, driftErr.Error())
+		return
+	}
+	if drift != "" {
+		refuse(http.StatusConflict, drift+"; ask for it again")
 		return
 	}
 	// Re-read the script with the same rules, in case the rules are stricter than when it was filed.
@@ -514,7 +573,12 @@ func (s *Server) applyProposal(p AIProposal, who Principal) {
 		s.aiMu.Unlock()
 		s.audit(context.Background(), who, "", "ai.proposal.apply", "ai-proposal/"+p.ID, status+": "+truncate(result, 200), status == apApplied)
 	}
-	res, err := s.callAWSMCP(ctx, scriptToolName, map[string]any{"code": p.Code})
+	st, _, target, werr := s.writeTarget(ctx, p.Account)
+	if werr != nil || target != p.Target {
+		finish(apFailed, "the account this was approved for changed before it ran; nothing was applied", nil)
+		return
+	}
+	res, err := s.callAWSMCPFor(ctx, st, scriptToolName, map[string]any{"code": p.Code})
 	if err != nil {
 		finish(apFailed, err.Error(), nil)
 		return

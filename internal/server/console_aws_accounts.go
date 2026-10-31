@@ -36,7 +36,8 @@ type AWSAccount struct {
 	Profile   string    `json:"profile"`
 	Region    string    `json:"region"`
 	Env       string    `json:"env,omitempty"`
-	AccountID string    `json:"account_id"` // proven with sts when it was added
+	AccountID string    `json:"account_id"`       // proven with sts when it was added
+	Writes    bool      `json:"writes,omitempty"` // an administrator allows change proposals for this account
 	CreatedAt time.Time `json:"created_at"`
 	CreatedBy string    `json:"created_by"`
 }
@@ -50,6 +51,7 @@ type AWSAccountJSON struct {
 	Env       string `json:"env,omitempty"`
 	AccountID string `json:"account_id,omitempty"`
 	Primary   bool   `json:"primary,omitempty"`
+	Writes    bool   `json:"writes"` // changes can be proposed for it (always true for the primary)
 }
 
 var slugRE = regexp.MustCompile(`[^a-z0-9]+`)
@@ -98,14 +100,14 @@ func (s *Server) accountViews(ctx context.Context) ([]AWSAccountJSON, error) {
 	var out []AWSAccountJSON
 	if st := s.loadAWS(ctx); st.Enabled {
 		name := "Primary"
-		out = append(out, AWSAccountJSON{ID: primaryAccount, Name: name, Profile: st.Profile, Region: st.Region, Primary: true})
+		out = append(out, AWSAccountJSON{ID: primaryAccount, Name: name, Profile: st.Profile, Region: st.Region, Primary: true, Writes: true})
 	}
 	as, err := s.listAWSAccounts(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, a := range as {
-		out = append(out, AWSAccountJSON{ID: a.ID, Name: a.Name, Profile: a.Profile, Region: a.Region, Env: a.Env, AccountID: a.AccountID})
+		out = append(out, AWSAccountJSON{ID: a.ID, Name: a.Name, Profile: a.Profile, Region: a.Region, Env: a.Env, AccountID: a.AccountID, Writes: a.Writes})
 	}
 	if out == nil {
 		out = []AWSAccountJSON{}
@@ -222,6 +224,8 @@ func (s *Server) handleAddAWSAccount(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteAWSAccount(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	s.acctMu.Lock()
+	defer s.acctMu.Unlock()
 	if id == primaryAccount {
 		writeError(w, http.StatusBadRequest, "the primary connection is changed on the Infrastructure page")
 		return
@@ -238,8 +242,152 @@ func (s *Server) handleDeleteAWSAccount(w http.ResponseWriter, r *http.Request) 
 		s.internalError(w, "removing the account", err)
 		return
 	}
-	s.auditReq(r, "integration.aws.account.remove", "integration/aws/"+id, a.Name, true)
+	n, cerr := s.cancelAccountProposals(r.Context(), id, a.Name, "the account was removed")
+	s.auditReq(r, "integration.aws.account.remove", "integration/aws/"+id, fmt.Sprintf("%s (%d waiting proposals canceled)%s", a.Name, n, map[bool]string{true: ", some could not be", false: ""}[cerr != nil]), cerr == nil)
+	if cerr != nil {
+		s.internalError(w, "canceling the proposals waiting for the account (it was removed; cancel them by hand)", cerr)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type updateAccountRequest struct {
+	Writes *bool `json:"writes"`
+}
+
+// handleUpdateAWSAccount switches change proposals on or off for an added account. Only an
+// administrator can, so nobody can widen where changes may go by proposing them.
+func (s *Server) handleUpdateAWSAccount(w http.ResponseWriter, r *http.Request) {
+	var req updateAccountRequest
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if req.Writes == nil {
+		writeError(w, http.StatusBadRequest, "say writes: true or false")
+		return
+	}
+	ctx := r.Context()
+	id := r.PathValue("id")
+	s.acctMu.Lock()
+	defer s.acctMu.Unlock()
+	if id == primaryAccount {
+		writeError(w, http.StatusBadRequest, "changes can always be proposed for the primary connection")
+		return
+	}
+	var a AWSAccount
+	if err := s.docs.Get(ctx, kindAWSAccount, id, &a); errors.Is(err, docstore.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "no such account")
+		return
+	} else if err != nil {
+		s.internalError(w, "reading the account", err)
+		return
+	}
+	a.Writes = *req.Writes
+	if err := s.docs.Put(ctx, kindAWSAccount, id, a); err != nil {
+		s.internalError(w, "saving the account", err)
+		return
+	}
+	detail := fmt.Sprintf("%s: changes %s", a.Name, map[bool]string{true: "allowed", false: "not allowed"}[a.Writes])
+	var cerr error
+	if !a.Writes {
+		var n int
+		n, cerr = s.cancelAccountProposals(ctx, id, a.Name, "changes were turned off for the account")
+		detail += fmt.Sprintf(" (%d waiting proposals canceled)", n)
+	}
+	s.auditReq(r, "integration.aws.account.writes", "integration/aws/"+id, detail, cerr == nil)
+	if cerr != nil {
+		s.internalError(w, "canceling the proposals waiting for the account (changes are off; cancel them by hand)", cerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, AWSAccountJSON{ID: a.ID, Name: a.Name, Profile: a.Profile, Region: a.Region, Env: a.Env, AccountID: a.AccountID, Writes: a.Writes})
+}
+
+// writeTarget resolves the account a change would be applied to and the string that binds a
+// proposal to it. The primary connection keeps the plain "profile/region" form; an added account
+// must have changes allowed and its target also names its AWS account number.
+func (s *Server) writeTarget(ctx context.Context, id string) (st awsSettings, acct AWSAccount, target string, err error) {
+	if id == "" || id == primaryAccount {
+		st = s.loadAWS(ctx)
+		return st, AWSAccount{}, fmt.Sprintf("%s/%s", st.Profile, st.Region), nil
+	}
+	if err = s.docs.Get(ctx, kindAWSAccount, id, &acct); errors.Is(err, docstore.ErrNotFound) {
+		return st, acct, "", errNoAccount
+	} else if err != nil {
+		return st, acct, "", errors.New("could not read the account")
+	}
+	if !acct.Writes {
+		return st, acct, "", fmt.Errorf("an administrator has not allowed changes for %q (Infrastructure → AWS account → Allow changes)", acct.Name)
+	}
+	st = awsSettings{Enabled: true, Profile: acct.Profile, Region: acct.Region}
+	return st, acct, fmt.Sprintf("acct/%s/%s/%s/%s", acct.ID, acct.AccountID, acct.Profile, acct.Region), nil
+}
+
+// verifyAccountIdentity checks that an added account's profile still signs in to the AWS account
+// it was added as. It returns "" when it does, otherwise what to tell the person.
+func (s *Server) verifyAccountIdentity(ctx context.Context, st awsSettings, acct AWSAccount) (problem string, unreachable error) {
+	out, err := s.aws(ctx, st, "sts", "get-caller-identity")
+	if err != nil {
+		return "", err
+	}
+	var ident struct{ Account string }
+	_ = json.Unmarshal(out, &ident)
+	if ident.Account != acct.AccountID {
+		return fmt.Sprintf("the profile %q now points at AWS account %s, not %s", acct.Profile, ident.Account, acct.AccountID), nil
+	}
+	return "", nil
+}
+
+// cancelAccountProposals cancels every proposal still waiting for an account. A change that is
+// already running is left to finish; it can no longer be started. It reports how many it canceled
+// and whether anything could not be read or saved, because an administrator who is told "none" must
+// be able to trust it.
+func (s *Server) cancelAccountProposals(ctx context.Context, id, name, why string) (n int, err error) {
+	now := time.Now().UTC()
+	note := "canceled automatically: " + why
+	var cleanup []CloudChange
+	s.cloud.mu.Lock()
+	docs, lerr := s.docs.List(ctx, kindCloud, docstore.ListOptions{})
+	if lerr != nil {
+		err = lerr
+	}
+	cs, _ := docstore.Decode[CloudChange](docs)
+	for _, c := range cs {
+		if c.Conn != id || (c.Status != stProposed && c.Status != stPreparing) {
+			continue
+		}
+		c.Status, c.FinishedAt, c.DecisionNote = stCanceled, &now, note
+		if perr := s.docs.Put(ctx, kindCloud, c.ID, c); perr != nil {
+			err = perr
+			continue
+		}
+		n++
+		if c.Kind == kindStackDeploy {
+			cleanup = append(cleanup, c)
+		}
+	}
+	s.cloud.mu.Unlock()
+	for i := range cleanup {
+		s.cleanupChangeSet(ctx, awsSettings{Profile: cleanup[i].Profile, Region: cleanup[i].Region}, &cleanup[i])
+	}
+	s.aiMu.Lock()
+	defer s.aiMu.Unlock()
+	docs, lerr = s.docs.List(ctx, kindAIProposal, docstore.ListOptions{})
+	if lerr != nil {
+		err = lerr
+	}
+	ps, _ := docstore.Decode[AIProposal](docs)
+	for _, p := range ps {
+		if p.Account != id || p.Status != apProposed {
+			continue
+		}
+		p.Status, p.FinishedAt, p.Note = apCancelled, &now, note
+		if perr := s.docs.Put(ctx, kindAIProposal, p.ID, p); perr != nil {
+			err = perr
+			continue
+		}
+		n++
+	}
+	return n, err
 }
 
 // accountParam reads ?account= and resolves it. It answers the request itself when the account is
@@ -280,7 +428,11 @@ func (s *Server) lookupAWSAccounts(ctx context.Context, _ json.RawMessage) (stri
 			fmt.Fprintf(&b, ", %s", a.Env)
 		}
 		if a.Primary {
-			b.WriteString(" (primary: the only account changes can be proposed for)")
+			b.WriteString(" (primary: changes can be proposed for it)")
+		} else if a.Writes {
+			b.WriteString(" (changes can be proposed for it: pass this id as account)")
+		} else {
+			b.WriteString(" (read-only: an administrator has not allowed changes)")
 		}
 		b.WriteString("\n")
 	}

@@ -35,7 +35,7 @@ export async function proposalsPage({ params }) {
       detail(id);
     };
     const approve = h('button', { class: 'btn-primary', type: 'button', id: 'approve-proposal', onclick: async () => {
-      const ok = await confirmDialog({ title: 'Approve and apply this change?', body: 'Forgeline will run exactly the script shown, against ' + targetLabel(p.target) + '. This changes your AWS account.', confirmLabel: 'Approve and apply' });
+      const ok = await confirmDialog({ title: 'Approve and apply this change?', body: 'Forgeline will run exactly the script shown, against ' + targetLabel(p.target, p) + '. This changes your AWS account.', confirmLabel: 'Approve and apply' });
       if (ok) act('approve', { hash: p.hash, note: note.value });
     } }, icon('check', 'size-4'), 'Approve and apply');
     mount(el,
@@ -44,7 +44,7 @@ export async function proposalsPage({ params }) {
       p.status === 'failed' && h('div', { class: 'mb-4' }, errorBox('The change did not complete cleanly. Check the account by hand.')),
       h('section', { class: 'card card-pad mb-4' }, h('h2', { class: 'h-section mb-2' }, 'Why'), h('p', { class: 'whitespace-pre-wrap text-sm' }, p.reason)),
       h('section', { class: 'card mb-4' }, h('div', { class: 'border-b border-slate-200 px-5 py-3 dark:border-slate-800' }, h('h2', { class: 'h-section' }, 'What it will do'),
-          h('p', { class: 'muted text-xs' }, 'Account connection: ' + targetLabel(p.target) + ' · risk ' + p.risk)),
+          h('p', { class: 'muted text-xs' }, 'Account connection: ' + targetLabel(p.target, p) + ' · risk ' + p.risk)),
         h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Service', 'Operation', 'Arguments'].map(x => h('th', {}, x)))),
           h('tbody', {}, p.calls.map(c => h('tr', {}, h('td', { class: 'font-mono text-sm' }, c.service), h('td', { class: 'font-mono text-sm font-semibold' }, c.operation), h('td', { class: 'font-mono text-xs break-all' }, c.args || '')))))),
       h('section', { class: 'card card-pad mb-4' }, h('h2', { class: 'h-section mb-2' }, 'The exact script'), h('pre', { class: 'overflow-x-auto rounded-lg bg-slate-950 p-3 font-mono text-xs text-slate-100', id: 'proposal-code' }, p.code),
@@ -69,7 +69,10 @@ export async function proposalsPage({ params }) {
   return el;
 }
 
-function targetLabel(t) {
-  const [profile, region] = (t || '/').split('/');
+function targetLabel(t, p) {
+  // An added account's target is acct/<id>/<AWS account number>/<profile>/<region>.
+  const parts = (t || '/').split('/');
+  if (parts[0] === 'acct' && parts.length === 5) return (p && p.account_name ? p.account_name + ' ' : '') + 'AWS account ' + parts[2] + ', profile ' + parts[3] + ', region ' + parts[4];
+  const [profile, region] = parts;
   return (profile ? 'profile ' + profile : 'the server\'s own AWS identity') + ', region ' + region;
 }
