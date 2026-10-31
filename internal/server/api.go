@@ -113,6 +113,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /v1/plugins/settings", s.requireRole(authn.Admin, s.handlePluginSettings))
 	mux.Handle("GET /v1/market/packages", s.requireRole(authn.Developer, s.handleMarketList))
 	mux.Handle("POST /v1/market/install", s.requireRole(authn.Admin, s.handleMarketInstall))
+	mux.Handle("POST /v1/market/refresh", s.requireRole(authn.Admin, s.handleMarketRefresh))
 	mux.Handle("DELETE /v1/market/install/{id}", s.requireRole(authn.Admin, s.handleMarketUninstall))
 	mux.Handle("POST /v1/ai/agents/{id}/chat", s.requireRole(authn.Developer, s.handleAgentChat))
 	mux.Handle("GET /v1/aws/accounts", s.requireRole(authn.Viewer, s.handleListAWSAccounts))

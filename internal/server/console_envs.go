@@ -185,8 +185,7 @@ type envQuote struct {
 }
 
 // quote prices a request and says whether the policy lets it start on its own.
-func quote(pol EnvPolicy, template string, params map[string]string, ttl int) envQuote {
-	spec := envSpecs[template]
+func quote(pol EnvPolicy, spec envSpec, template string, params map[string]string, ttl int) envQuote {
 	monthly := spec.Monthly(params)
 	q := envQuote{MonthlyUSD: round2(monthly), ForTTLUSD: round2(monthly * float64(ttl) / 730)}
 	switch {
@@ -271,8 +270,9 @@ func (s *Server) handleGetEnv(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleEnvTemplates(w http.ResponseWriter, r *http.Request) {
 	var out []map[string]any
-	for _, t := range catalog {
-		spec, ok := envSpecs[t.ID]
+	ctx := r.Context()
+	for _, t := range s.allTemplates(ctx) {
+		spec, ok := s.envSpecFor(ctx, t.ID)
 		if !ok {
 			continue
 		}
@@ -312,8 +312,8 @@ type envRequest struct {
 
 // prepareEnv checks a request and builds the parameters the template needs.
 func (s *Server) prepareEnv(ctx context.Context, p Principal, req envRequest, pol EnvPolicy) (CatalogTemplate, map[string]string, *httpErr) {
-	spec, ok := envSpecs[req.Template]
-	tpl, found := findTemplate(req.Template)
+	spec, ok := s.envSpecFor(ctx, req.Template)
+	tpl, found := s.findTemplate(ctx, req.Template)
 	if !ok || !found {
 		return tpl, nil, refusal(http.StatusBadRequest, "choose one of the environment templates")
 	}
@@ -352,8 +352,8 @@ func (s *Server) handleEnvEstimate(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	spec, ok := envSpecs[req.Template]
-	tpl, found := findTemplate(req.Template)
+	spec, ok := s.envSpecFor(r.Context(), req.Template)
+	tpl, found := s.findTemplate(r.Context(), req.Template)
 	if !ok || !found {
 		writeError(w, http.StatusBadRequest, "choose one of the environment templates")
 		return
@@ -387,7 +387,7 @@ func (s *Server) handleEnvEstimate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, quote(pol, req.Template, params, req.TTLHours))
+	writeJSON(w, http.StatusOK, quote(pol, spec, req.Template, params, req.TTLHours))
 }
 
 var envNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9 -]{2,39}$`)
@@ -458,7 +458,8 @@ func (s *Server) requestEnv(ctx context.Context, p Principal, ip string, req env
 	if herr != nil {
 		return Environment{}, herr
 	}
-	q := quote(pol, req.Template, params, req.TTLHours)
+	spec, _ := s.envSpecFor(ctx, req.Template)
+	q := quote(pol, spec, req.Template, params, req.TTLHours)
 	if viaAI {
 		q.SelfService = false
 	}

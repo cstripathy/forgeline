@@ -29,6 +29,15 @@ section in the pull request that makes the change; a release moves it under its 
   (a demoted or disabled person loses it at once), expires, is stored as a hash, and works nowhere
   else. Every call is audited, output is cut and credential formats are masked, and calls are
   rate-limited. Raw AWS access, agents and plugin tools are not exposed. (note 020)
+- **Signed packages from git, workflow and environment-template packages.** The operator can point the
+  marketplace at a git repository and the ed25519 keys they trust (`FORGELINE_MARKET_GIT`,
+  `FORGELINE_MARKET_KEYS`). A package from git is listed as installable only if a trusted key signed its
+  content hash; unsigned, wrongly signed, rolled-back or re-issued ones show as damaged with the reason.
+  Manifests are read from git's object store without a checkout, so nothing from the repository is ever
+  executed. An update must come from the same source and signer. `forgeline market keygen` and
+  `forgeline market sign` are for publishers. Packages can now hold workflows (never scheduled, a
+  viewer at tier T0) and environment templates (always administrator-approved, never self-service,
+  no IAM or nested stacks). (note 019)
 - **Pipeline guard.** Guard now reads saved pipelines and recent run logs, with no cloud account
   needed: unpinned images, secrets with open network, agent steps holding extra secrets, credentials
   or secret-looking values written into a pipeline file, `curl | sh`, scripts that print secrets, and
