@@ -1,0 +1,35 @@
+{
+  "id": "cluster-health",
+  "version": 1,
+  "title": "Cluster health",
+  "description": "Reads a Kubernetes cluster and reports what is unhealthy: crash loops, pending pods, nodes not ready.",
+  "publisher": "Forgeline",
+  "tags": [
+    "kubernetes"
+  ],
+  "skills": [
+    {
+      "key": "cluster-check",
+      "name": "Check a cluster",
+      "description": "Steps for a cluster health check.",
+      "body": "1. List clusters with k8s_clusters.\n2. Read nodes, then pods. Report nodes that are not Ready, pods that are Pending, CrashLoopBackOff or restarting often, and deployments with fewer ready replicas than wanted.\n3. Read events for the namespaces with problems and quote the most telling event for each.\n4. Say what is healthy as well, so a person knows what you checked.\n5. Suggest next steps but do not change anything."
+    }
+  ],
+  "agents": [
+    {
+      "key": "cluster-doctor",
+      "name": "Cluster doctor",
+      "description": "Finds what is unhealthy in a cluster.",
+      "instructions": "You check the health of Kubernetes clusters. Use the cluster check skill. Everything you do is read-only.",
+      "skills": [
+        "cluster-check"
+      ],
+      "tools": [
+        "k8s_clusters",
+        "k8s_resources"
+      ],
+      "tier": "T0"
+    }
+  ],
+  "sha256": "4079519ae75ce3db0540c2c7a17a50d19219a5ad5e93cb5970114d0fc6e143bb"
+}

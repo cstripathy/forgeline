@@ -14,6 +14,7 @@ import { workflowPage, workflowRunPage } from './pages/workflows.js';
 import { guardPage } from './pages/guard.js';
 import { kubernetesPage } from './pages/kubernetes.js';
 import { environmentsPage } from './pages/environments.js';
+import { marketplacePage } from './pages/marketplace.js';
 import { infraPage } from './pages/infra.js';
 import { integrationsPage } from './pages/integrations.js';
 import { secretsPage } from './pages/secrets.js';
@@ -34,6 +35,7 @@ const NAV = [
   { path: '/kubernetes', label: 'Kubernetes', icon: 'box', min: 'viewer', also: ['/kubernetes/'] },
   { path: '/guard', label: 'Guard', icon: 'shield', min: 'viewer' },
   { path: '/agents', label: 'Agents', icon: 'sparkle', min: 'developer', also: ['/agents/', '/skills/', '/workflows/', '/workflow-runs/'] },
+  { path: '/marketplace', label: 'Marketplace', icon: 'plug', min: 'developer' },
   { path: '/proposals', label: 'Proposals', icon: 'check', min: 'viewer' },
   { path: '/integrations', label: 'Integrations', icon: 'plug', min: 'developer' },
   { path: '/secrets', label: 'Secrets', icon: 'key', min: 'developer' },
@@ -148,6 +150,7 @@ async function boot() {
     route('/runs/:id', guard('viewer', runPage));
     route('/actions', guard('developer', actionsPage));
     route('/environments', guard('developer', environmentsPage));
+    route('/marketplace', guard('developer', marketplacePage));
     route('/kubernetes', guard('viewer', kubernetesPage));
     route('/kubernetes/:id', guard('viewer', kubernetesPage));
     route('/guard', guard('viewer', guardPage));

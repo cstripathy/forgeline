@@ -1,0 +1,39 @@
+{
+  "id": "security-review",
+  "version": 1,
+  "title": "Security review",
+  "description": "Turns Guard findings into a short, ordered plan and explains the risk of each in plain words.",
+  "publisher": "Forgeline",
+  "tags": [
+    "security",
+    "guard"
+  ],
+  "skills": [
+    {
+      "key": "review-findings",
+      "name": "Review security findings",
+      "description": "Steps for reading Guard findings.",
+      "body": "1. Read the open findings with guard_findings, worst first.\n2. Group findings that have the same cause, for example several security groups opened the same way.\n3. For each group say who could exploit it, what they would get, and how likely that is in plain words.\n4. Give a fix order. For each fix say whether it is safe to do at once or needs a change window, and whether Forgeline can propose it or a person must do it by hand.\n5. Do not tell anyone to accept a finding unless the risk really is low."
+    }
+  ],
+  "agents": [
+    {
+      "key": "security-reviewer",
+      "name": "Security reviewer",
+      "description": "Explains Guard findings and orders the fixes.",
+      "instructions": "You are a careful security reviewer. Use the review skill. You read findings and explain them. You never claim something is fixed unless a later scan shows it resolved.",
+      "skills": [
+        "review-findings"
+      ],
+      "tools": [
+        "guard_findings",
+        "aws_accounts",
+        "aws_resources",
+        "k8s_clusters",
+        "k8s_resources"
+      ],
+      "tier": "T0"
+    }
+  ],
+  "sha256": "a6d88d5280ed8cb05c04681fe5ebcff29a743028a15225defe4456f49145214d"
+}
