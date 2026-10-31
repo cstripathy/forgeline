@@ -6,6 +6,9 @@ section in the pull request that makes the change; a release moves it under its 
 
 ## [Unreleased]
 
+### Fixed
+- A cloud change canceled while its preview was still being prepared came back as waiting for approval when the preview finished; the cancellation now stays.
+
 ### Added
 - **Environments from the assistant, and three more templates.** The assistant, review-tier agents
   and workflow steps can request a temporary environment in a person's name (`environment_templates`,
@@ -13,6 +16,11 @@ section in the pull request that makes the change; a release moves it under its 
   different administrator approves it, and the audit log and the change's reason say the assistant asked.
   New templates: Lambda sandbox, event pipeline (SNS to SQS with a dead-letter queue) and workflow sandbox
   (Step Functions), each free while idle.
+- **Changes in any AWS account.** An administrator can allow change proposals for an added account
+  (off by default). Cloud changes and the assistant's AWS change proposals can then name the account;
+  each is bound to the account, its AWS account number, profile and region, runs through that
+  account's own signing proxy, and is canceled if the account is removed or changes are switched off.
+  (note 021)
 - **Pipeline guard.** Guard now reads saved pipelines and recent run logs, with no cloud account
   needed: unpinned images, secrets with open network, agent steps holding extra secrets, credentials
   or secret-looking values written into a pipeline file, `curl | sh`, scripts that print secrets, and

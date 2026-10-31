@@ -112,6 +112,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/ai/agents/{id}/chat", s.requireRole(authn.Developer, s.handleAgentChat))
 	mux.Handle("GET /v1/aws/accounts", s.requireRole(authn.Viewer, s.handleListAWSAccounts))
 	mux.Handle("POST /v1/aws/accounts", s.requireRole(authn.Admin, s.handleAddAWSAccount))
+	mux.Handle("PATCH /v1/aws/accounts/{id}", s.requireRole(authn.Admin, s.handleUpdateAWSAccount))
 	mux.Handle("DELETE /v1/aws/accounts/{id}", s.requireRole(authn.Admin, s.handleDeleteAWSAccount))
 	mux.Handle("GET /v1/infra/aws/resources", s.requireRole(authn.Viewer, s.handleAWSInventory))
 	mux.Handle("GET /v1/infra/aws/cost", s.requireRole(authn.Developer, s.handleAWSCost))

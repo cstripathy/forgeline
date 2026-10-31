@@ -89,6 +89,10 @@ type CloudChange struct {
 	Profile string `json:"profile,omitempty"`
 	Region  string `json:"region"`
 	Account string `json:"account"`
+	// Conn is the added account's id in the console, empty for the primary connection; ConnName is
+	// its name, for the approver.
+	Conn     string `json:"conn,omitempty"`
+	ConnName string `json:"conn_name,omitempty"`
 
 	ProposedBy   string     `json:"proposed_by"`
 	ProposedAt   time.Time  `json:"proposed_at"`
@@ -100,6 +104,13 @@ type CloudChange struct {
 }
 
 func (c CloudChange) target() string {
+	if c.Conn != "" {
+		return "acct/" + c.Conn + "/" + c.targetLocal()
+	}
+	return c.targetLocal()
+}
+
+func (c CloudChange) targetLocal() string {
 	switch c.Kind {
 	case kindInstanceAction:
 		return "instance/" + c.InstanceID
@@ -221,6 +232,8 @@ type proposeRequest struct {
 	Params     map[string]string `json:"params"`
 	InstanceID string            `json:"instance_id"`
 	Action     string            `json:"action"`
+	// Account is an added account's id; empty means the primary connection.
+	Account string `json:"account"`
 }
 
 // httpErr is a refusal with the status the HTTP handler should answer.
@@ -254,8 +267,14 @@ func (s *Server) handlePropose(w http.ResponseWriter, r *http.Request) {
 // proposeChange records a change and prepares its preview in the background. The environment engine
 // calls it too, as a person or as a named policy; nothing about approval is decided here.
 func (s *Server) proposeChange(ctx context.Context, p Principal, ip string, req proposeRequest) (CloudChange, *httpErr) {
-	st := s.loadAWS(ctx)
-	if !st.Enabled {
+	st, acct, _, werr := s.writeTarget(ctx, req.Account)
+	switch {
+	case errors.Is(werr, errNoAccount):
+		return CloudChange{}, refusal(http.StatusNotFound, "no such AWS account")
+	case werr != nil:
+		_ = s.audit(ctx, p, ip, "cloud.propose", "acct/"+req.Account, "refused: "+werr.Error(), false)
+		return CloudChange{}, refusal(http.StatusForbidden, werr.Error())
+	case !st.Enabled:
 		return CloudChange{}, refusal(http.StatusConflict, "connect an AWS account first (Infrastructure → AWS)")
 	}
 	req.Reason = strings.TrimSpace(req.Reason)
@@ -264,6 +283,9 @@ func (s *Server) proposeChange(ctx context.Context, p Principal, ip string, req 
 	}
 	c := CloudChange{ID: authn.NewID(), Kind: req.Kind, Status: stPreparing, Reason: req.Reason, Preview: []ChangePreview{},
 		Profile: st.Profile, Region: st.Region, ProposedBy: p.Name, ProposedAt: time.Now().UTC()}
+	if acct.ID != "" {
+		c.Conn, c.ConnName = acct.ID, acct.Name
+	}
 
 	var prepare func(context.Context, *CloudChange, awsSettings) error
 	switch req.Kind {
@@ -318,6 +340,12 @@ func (s *Server) proposeChange(ctx context.Context, p Principal, ip string, req 
 	var id struct{ Account string }
 	json.Unmarshal(idOut, &id)
 	c.Account = id.Account
+	if acct.ID != "" {
+		if id.Account != acct.AccountID {
+			return CloudChange{}, refusal(http.StatusConflict, fmt.Sprintf("the profile %q now points at AWS account %s, not %s; remove and add the account again", acct.Profile, id.Account, acct.AccountID))
+		}
+		c.Title += " in " + acct.Name
+	}
 
 	if err := s.docs.Create(ctx, kindCloud, c.ID, c); err != nil {
 		return CloudChange{}, refusal(http.StatusInternalServerError, err.Error())
@@ -337,8 +365,28 @@ func (s *Server) proposeChange(ctx context.Context, p Principal, ip string, req 
 		} else {
 			work.Status = stProposed
 		}
+		// Save only if nobody decided the change while its preview was being prepared: a cancel (by
+		// the proposer, or because the account was switched off) must not be written over.
+		s.cloud.mu.Lock()
+		var cur CloudChange
+		if err := s.docs.Get(pctx, kindCloud, work.ID, &cur); err == nil && cur.Status != stPreparing {
+			s.cloud.mu.Unlock()
+			s.cleanupChangeSet(pctx, awsSettings{Profile: work.Profile, Region: work.Region}, &work)
+			return
+		}
+		if work.Status == stProposed && work.Conn != "" {
+			// The account may have lost its permission since the proposal was filed.
+			if _, _, _, werr := s.writeTarget(pctx, work.Conn); werr != nil {
+				now := time.Now().UTC()
+				work.Status, work.FinishedAt, work.DecisionNote = stCanceled, &now, "canceled automatically: "+werr.Error()
+			}
+		}
 		if err := s.docs.Put(context.WithoutCancel(ctx), kindCloud, work.ID, work); err != nil {
 			s.log.Error("saving a prepared proposal", "id", work.ID, "err", err)
+		}
+		s.cloud.mu.Unlock()
+		if work.Status == stCanceled {
+			s.cleanupChangeSet(pctx, awsSettings{Profile: work.Profile, Region: work.Region}, &work)
 		}
 	}()
 	return c, nil
@@ -645,7 +693,10 @@ func (s *Server) approveChange(ctx context.Context, id string, p Principal, ip, 
 	if other, ok := s.cloud.busy[c.target()]; ok {
 		return refuse(http.StatusConflict, "another change ("+other+") is already running against "+c.target())
 	}
-	st := s.loadAWS(ctx)
+	st, _, _, werr := s.writeTarget(ctx, c.Conn)
+	if werr != nil {
+		return refuse(http.StatusConflict, "this was proposed for an account that can no longer take changes ("+werr.Error()+"); propose it again")
+	}
 	if !st.Enabled || st.Profile != c.Profile || st.Region != c.Region {
 		return refuse(http.StatusConflict, "the AWS connection changed since this was proposed; propose it again")
 	}

@@ -14,6 +14,8 @@ type multiStub struct {
 	mu       sync.Mutex
 	accounts map[string]string // profile -> account id; a profile not listed cannot sign in
 	calls    []string          // "profile: command"
+	gate     chan struct{}     // when set, describe-instances waits for it to be closed
+	stsGate  chan struct{}     // when set, the staging profile's sts call waits for it to be closed
 }
 
 func (m *multiStub) run(_ context.Context, name string, args ...string) ([]byte, string, error) {
@@ -37,7 +39,20 @@ func (m *multiStub) run(_ context.Context, name string, args ...string) ([]byte,
 	if !ok {
 		return nil, "The config profile (" + profile + ") could not be found", errors.New("exit 255")
 	}
-	switch strings.Join(rest, " ") {
+	joined := strings.Join(rest, " ")
+	if m.stsGate != nil && profile == "staging" && joined == "sts get-caller-identity" {
+		<-m.stsGate
+	}
+	if m.gate != nil && strings.HasPrefix(joined, "ec2 describe-instances") {
+		<-m.gate
+	}
+	if strings.HasPrefix(joined, "ec2 describe-instances") {
+		return []byte(`{"Reservations":[{"Instances":[{"InstanceType":"t3.small","State":{"Name":"running"},"Tags":[{"Key":"Name","Value":"web-` + acct + `"}]}]}]}`), "", nil
+	}
+	if strings.HasPrefix(joined, "ec2 reboot-instances") {
+		return []byte(`{}`), "", nil
+	}
+	switch joined {
 	case "sts get-caller-identity":
 		return []byte(`{"Account":"` + acct + `","Arn":"arn:aws:sts::` + acct + `:assumed-role/Admin/ada","UserId":"x"}`), "", nil
 	case "s3api list-buckets":

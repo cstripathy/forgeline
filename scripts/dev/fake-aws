@@ -5,6 +5,13 @@ import json, os, sys
 
 STATE = os.environ.get("FAKE_AWS_STATE", "/tmp/fake-aws-state.json")
 ACCOUNT = "111122223333"
+# FAKE_AWS_ACCOUNTS="staging=444455556666,prod=777788889999" makes those profiles separate accounts,
+# each with its own state file; any other profile (or none) is the default account.
+_profile = sys.argv[sys.argv.index("--profile") + 1] if "--profile" in sys.argv[:-1] else ""
+for _pair in filter(None, os.environ.get("FAKE_AWS_ACCOUNTS", "").split(",")):
+    _name, _, _id = _pair.partition("=")
+    if _name == _profile and _id:
+        ACCOUNT, STATE = _id, STATE + "." + _profile
 
 def load():
     try:

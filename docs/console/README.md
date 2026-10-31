@@ -71,8 +71,21 @@ Infrastructure → AWS account has an account switcher. The connection made firs
 account; administrators can add more by profile and region (Add account proves the profile with
 `sts get-caller-identity`, labels it production, staging, development or sandbox, and refuses an
 account that is already added). Every account can be read: the explorer, stacks, spend, and the
-assistant (`aws_accounts`, then `aws_summary` or `call_aws` with an `account`). Changes are proposed
-for the primary account only; the page says so on the others. Removing an account changes nothing in AWS.
+assistant (`aws_accounts`, then `aws_summary` or `call_aws` with an `account`).
+
+**Changes in an added account.** Added accounts are read-only until an administrator chooses **Allow
+changes** for one (off by default; nobody else can switch it). Then a developer can propose the usual
+changes (deploy, delete a stack, reboot an instance) for it from that account's page, and the assistant's
+`propose_aws_change` accepts an `account`. The proposal records the account's name, its AWS account
+number, profile and region; the approver sees them, and approval refuses if the account was removed,
+changes were switched off, or the profile now signs in to a different AWS account. An AI proposal runs
+through its own signing proxy for that account, never the primary's; the primary is unaffected.
+Stopping changes or removing the account cancels the proposals waiting for it. `aws_script` reads can name
+any account. Removing an account changes nothing in AWS. Environments and their policy stay on the primary.
+
+![Allow changes for an added account](60-account-writes.png)
+
+![A reboot proposed for the staging account, as the approver sees it](61-account-change.png)
 
 ![An added account (a second real AWS account) in the explorer](45-aws-accounts.png)
 

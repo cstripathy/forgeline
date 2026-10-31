@@ -1,5 +1,5 @@
 import { h, icon, mount, pill, pageHeader, relTime, absTime, bytes, spinner, errorBox, notice, toast, modal, confirmDialog, field, emptyState, kpi } from '../lib/dom.js';
-import { get, put, post, del, atLeast } from '../lib/api.js';
+import { get, put, post, patch, del, atLeast } from '../lib/api.js';
 import { navigate } from '../lib/router.js';
 import { session } from '../app.js';
 import { ssoWizard } from './aws_sso.js';
@@ -92,7 +92,7 @@ async function aws(body) {
   const admin = atLeast(session.role, 'admin'), devRole = atLeast(session.role, 'developer');
   let account = 'primary', accounts = [];
   try { account = sessionStorage.getItem(ACCOUNT_KEY) || 'primary'; } catch { /* a blocked store only forgets the choice */ }
-  // Changes are proposed for the primary account only; the other accounts are for reading.
+  // Changes can be proposed for the primary account and for any added account an administrator allowed them for.
   let dev = devRole;
   const q = (extra) => '?account=' + encodeURIComponent(account) + (extra || '');
 
@@ -100,12 +100,15 @@ async function aws(body) {
     let v;
     try { accounts = (await get('/v1/aws/accounts')).accounts; } catch { accounts = []; }
     if (account !== 'primary' && !accounts.some(a => a.id === account)) account = 'primary'; // it was removed
-    dev = devRole && account === 'primary';
+    const cur = accounts.find(a => a.id === account);
+    dev = devRole && (account === 'primary' || !!(cur && cur.writes)); // the primary always takes changes, even if the list failed
     try { v = await get('/v1/infra/aws' + q(refresh ? '&refresh=1' : '')); } catch (e) { return mount(body, errorBox(e.message)); }
     if (!v.enabled && account === 'primary') return mount(body, accounts.length ? h('div', { class: 'space-y-4' }, accountBar(), connectCard(null)) : connectCard(null));
     mount(body,
       accounts.length > 1 || admin ? accountBar() : null,
-      account !== 'primary' && h('div', { class: 'mb-4' }, notice('info', 'This account is read-only here. The explorer, stacks, spend and the assistant can look at it; changes can be proposed for the primary account only.')),
+      account !== 'primary' && h('div', { class: 'mb-4', id: 'account-writes-note' }, accounts.find(a => a.id === account)?.writes
+        ? notice('info', 'Changes you propose here are applied to this account, and the approver sees which one. The explorer, stacks, spend and the assistant can look at it as well.')
+        : notice('info', 'This account is read-only for changes. The explorer, stacks, spend and the assistant can look at it. ' + (admin ? 'Use Allow changes above to let people propose changes for it.' : 'An administrator can allow changes for it.'))),
       h('div', { class: 'mb-4 flex flex-wrap items-center justify-between gap-3' },
         v.identity ? h('div', { class: 'flex items-center gap-3 text-sm' }, h('span', { class: 'pill-ok' }, 'Connected'),
           h('span', {}, 'Account ', h('strong', { class: 'font-mono' }, v.identity.account)), h('span', { class: 'muted' }, 'region ' + v.region + (v.profile === 'forgeline-sso' ? ' · signed in from the console' : v.profile ? ' · profile ' + v.profile : '')),
@@ -128,8 +131,13 @@ async function aws(body) {
     return h('div', { class: 'mb-4 flex flex-wrap items-center gap-2' },
       accounts.length ? [h('label', { class: 'muted text-sm', for: 'aws-account' }, 'Account'), sel] : null,
       admin && h('button', { class: 'btn-secondary btn-sm', type: 'button', id: 'add-account', onclick: addAccountModal }, icon('plus', 'size-3.5'), 'Add account'),
+      admin && cur && !cur.primary && h('button', { class: 'btn-secondary btn-sm', type: 'button', id: 'account-writes', onclick: async () => {
+        const on = !cur.writes;
+        if (!await confirmDialog({ title: (on ? 'Allow changes for ' : 'Stop changes for ') + cur.name + '?', body: on ? 'People can then propose changes for this account. Each still needs a different administrator to approve it.' : 'Proposals waiting for this account are canceled.', confirmLabel: on ? 'Allow changes' : 'Stop changes' })) return;
+        try { await patch('/v1/aws/accounts/' + encodeURIComponent(cur.id), { writes: on }); toast(on ? 'Changes allowed' : 'Changes stopped', 'ok'); load(false); } catch (e) { toast(e.message, 'error'); }
+      } }, cur.writes ? 'Stop allowing changes' : 'Allow changes'),
       admin && cur && !cur.primary && h('button', { class: 'btn-ghost btn-sm text-rose-600 dark:text-rose-400', type: 'button', onclick: async () => {
-        if (!await confirmDialog({ title: 'Remove ' + cur.name + '?', body: 'Forgeline stops showing it. Nothing in the AWS account changes.', confirmLabel: 'Remove', danger: true })) return;
+        if (!await confirmDialog({ title: 'Remove ' + cur.name + '?', body: 'Forgeline stops showing it and cancels proposals waiting for it. Nothing in the AWS account changes.', confirmLabel: 'Remove', danger: true })) return;
         try { await del('/v1/aws/accounts/' + encodeURIComponent(cur.id)); toast('Removed', 'ok'); account = 'primary'; load(true); } catch (e) { toast(e.message, 'error'); }
       } }, icon('trash', 'size-3.5'), 'Remove'));
   }
@@ -265,7 +273,7 @@ async function aws(body) {
       const extra = build ? build() : { el: null, get: () => ({}) };
       const go = h('button', { class: 'btn-primary', type: 'button', onclick: async () => {
         err.classList.add('hidden'); go.disabled = true;
-        try { const ch = await post('/v1/cloud/changes', { ...extra.get(), reason: reason.value }); toast('Proposed. Someone else must approve it.', 'ok'); close(); navigate('/infrastructure?tab=changes'); return ch; }
+        try { const ch = await post('/v1/cloud/changes', { ...extra.get(), ...(account !== 'primary' ? { account } : {}), reason: reason.value }); toast('Proposed. Someone else must approve it.', 'ok'); close(); navigate('/infrastructure?tab=changes'); return ch; }
         catch (e) { mount(err, errorBox(e.message)); err.classList.remove('hidden'); go.disabled = false; }
       } }, 'Propose change');
       return h('div', { class: 'space-y-4' }, notice('info', summary), extra.el, field('Reason', reason), err, h('div', { class: 'flex justify-end gap-2' }, h('button', { class: 'btn-secondary', type: 'button', onclick: () => close() }, 'Cancel'), go));
@@ -334,7 +342,7 @@ async function changes(body) {
       };
       const canDecide = c.status === 'proposed';
       return h('div', { class: 'space-y-4' },
-        h('div', { class: 'flex flex-wrap items-center gap-3' }, pill(c.status), h('span', { class: 'muted text-sm' }, `Proposed by ${c.proposed_by} ${relTime(c.proposed_at)} · account ${c.account} · ${c.region}`)),
+        h('div', { class: 'flex flex-wrap items-center gap-3' }, pill(c.status), h('span', { class: 'muted text-sm' }, `Proposed by ${c.proposed_by} ${relTime(c.proposed_at)} · account ${c.account}${c.conn_name ? ' (' + c.conn_name + ')' : ''} · ${c.region}`)),
         h('div', {}, h('div', { class: 'h-section mb-1' }, 'Reason'), h('p', { class: 'text-sm' }, c.reason)),
         c.params && Object.keys(c.params).length ? h('div', {}, h('div', { class: 'h-section mb-1' }, 'Parameters'), h('dl', { class: 'grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm' }, Object.entries(c.params).map(([k, v]) => [h('dt', { class: 'muted' }, k), h('dd', { class: 'break-all font-mono text-xs' }, v)]))) : null,
         h('div', {}, h('div', { class: 'h-section mb-1' }, 'What would change'), c.preview.length ? h('div', { class: 'overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800' }, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Action', 'Resource', 'Type', 'Detail'].map(x => h('th', {}, x)))),
@@ -346,7 +354,7 @@ async function changes(body) {
           c.proposed_by === me && h('span', { class: 'muted mr-auto self-center text-xs' }, 'You proposed this, so someone else must approve it.'),
           (c.proposed_by === me || admin) && h('button', { class: 'btn-secondary', type: 'button', onclick: () => act('cancel', 'Canceled') }, 'Cancel proposal'),
           admin && h('button', { class: 'btn-secondary', type: 'button', onclick: () => act('reject', 'Rejected') }, 'Reject'),
-          admin && h('button', { class: 'btn-primary', type: 'button', disabled: c.proposed_by === me, onclick: async () => { if (await confirmDialog({ title: 'Approve and run this change?', body: 'It will run against AWS account ' + c.account + ' straight away.', confirmLabel: 'Approve and run' })) act('approve', 'Approved. Running now.'); } }, icon('check', 'size-4'), 'Approve and run'))));
+          admin && h('button', { class: 'btn-primary', type: 'button', disabled: c.proposed_by === me, onclick: async () => { if (await confirmDialog({ title: 'Approve and run this change?', body: 'It will run against AWS account ' + c.account + (c.conn_name ? ' (' + c.conn_name + ')' : '') + ' straight away.', confirmLabel: 'Approve and run' })) act('approve', 'Approved. Running now.'); } }, icon('check', 'size-4'), 'Approve and run'))));
     }, { wide: true });
   }
 
