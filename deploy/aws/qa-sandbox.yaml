@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Forgeline QA sandbox: an on-demand DynamoDB table and an encrypted SQS queue for a test run. It costs
+  almost nothing idle and is deleted with its stack. See deploy/aws/README.md.
+
+Parameters:
+  Owner:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9_.@ -]{1,64}$"
+  ExpiresAt:
+    Type: String
+    AllowedPattern: "^[0-9TZ:-]{20}$"
+
+Resources:
+  Table:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      SSESpecification: { SSEEnabled: true }
+      Tags:
+        - { Key: forgeline:environment, Value: qa-sandbox }
+        - { Key: Owner, Value: !Ref Owner }
+        - { Key: ExpiresAt, Value: !Ref ExpiresAt }
+
+  Queue:
+    Type: AWS::SQS::Queue
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 86400
+      Tags:
+        - { Key: forgeline:environment, Value: qa-sandbox }
+        - { Key: Owner, Value: !Ref Owner }
+        - { Key: ExpiresAt, Value: !Ref ExpiresAt }
+
+Outputs:
+  TableName:
+    Value: !Ref Table
+  QueueUrl:
+    Value: !Ref Queue

@@ -1,6 +1,6 @@
 # 017: accounts, agents, workflows, environments, guard, marketplace
 
-Status: slices 1 (accounts), 2 (skills and agents, with versions) 3 (workflows), 4 (guard) and 5 (Kubernetes, read-only) built; the rest planned. Builds on 013 (AI use cases), 014 (missions
+Status: slices 1 (accounts), 2 (skills and agents, with versions) 3 (workflows), 4 (guard) and 5 (Kubernetes, read-only) and 6 (environments) built; the rest planned. Builds on 013 (AI use cases), 014 (missions
 and autonomy tiers), 015 and 016 (AWS access and the AWS MCP Server).
 
 ## The one rule everything keeps
@@ -19,7 +19,7 @@ propose. None of them gets a new way to write. This is what lets us hand people 
 | 3 | **Workflows** (built) | Agents and steps in order or in parallel, with approval gates, started by hand, on a schedule, or when a run fails. Output is a report or proposals | 2 |
 | 4 | **Guard** (built) | Scheduled read-only security reviews per account (public buckets, open security groups, unencrypted volumes, idle resources, stale users), findings with severity and history, exceptions with an expiry, a pipeline guard (unpinned actions, secrets in logs) | 1, 3 |
 | 5 | **Kubernetes** (read-only built) | Register clusters (kubeconfig or EKS), explorer for namespaces, workloads, pods and events, change proposals as a server-side dry-run diff, same approval | 1 |
-| 6 | **Environments** | Temporary infrastructure and dev boxes for developers and QA from templates: owner, time to live, cost cap, auto-destroy, request then approve (or pre-approved class for small ones) | 1, 5 |
+| 6 | **Environments** (built) | Temporary infrastructure and dev boxes for developers and QA from templates: owner, time to live, cost cap, auto-destroy, request then approve (or pre-approved class for small ones) | 1, 5 |
 | 7 | **Marketplace** | Catalogue of agents, skills, workflow and environment templates, and plugins. Install shows the permissions it asks for. Versions pinned by hash. Plugins are MCP servers run in a container, never in the server process | 2, 3 |
 | 8 | **Per-account writes** | One MCP proxy per account so approved changes can apply outside the primary account; cross-account role assumption; AWS Organizations discovery | 1 |
 
@@ -78,6 +78,23 @@ cluster**: creating a throwaway privileged cluster was not permitted in the buil
 Not built: kubeconfig import and exec plugins other than EKS, change proposals as a server-side
 dry-run diff with approval, logs and exec, RBAC and network-policy checks, and multi-page lists beyond
 500 items per kind.
+
+## Slice 6: what was built
+
+An environment is a CloudFormation stack made from a catalog template, with an owner, purpose, time
+limit and cost estimate, recorded beside the ordinary cloud change that creates it. Requesting one
+proposes that change; approving it is unchanged four-eyes unless the **self-service policy** (off by
+default, admin-set: templates, longest request, cost limit, environments per person) covers the request,
+in which case the engine approves it in the name of `policy:self-service`. That is the one place a
+stack is created without a second person, and the flag is decided by the server when the request is
+made, never by the client. Deleting is automatic when time is up (`policy:expiry`), after a failed
+creation (`policy:cleanup`) and when the owner or an administrator asks; each is a normal stack-delete
+change and audited. An environment can only delete its own recorded stack. Extension is capped by the
+longest life and, for non-administrators, a count. The engine reads state every 5 seconds and every
+step is recorded, so a restart carries on. Templates are validated against CloudFormation and tested
+against a stand-in; the real-account run is the next check. Not built: more templates, per-person
+budgets across environments, a shared "team" owner, scheduled stop/start to save money, and requesting
+an environment from the assistant.
 
 ## Slice 2 sketch (so slice 1 does not paint us into a corner)
 

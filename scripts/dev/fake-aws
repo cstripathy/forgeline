@@ -86,6 +86,12 @@ if key == "cloudformation delete-stack":
     else: st["stacks"][name] = "DELETE_IN_PROGRESS"; st["seen"][name] = 0
     save(st); out({})
 
+if key == "ec2 describe-vpcs":
+    out({"Vpcs": [{"VpcId": "vpc-0def0def0def0def0", "IsDefault": True}]})
+
+if key == "ec2 describe-subnets":
+    out({"Subnets": [{"SubnetId": "subnet-0aaa0aaa0aaa0aaa0"}, {"SubnetId": "subnet-0bbb0bbb0bbb0bbb0"}]})
+
 if key == "cloudformation list-stack-resources":
     out({"StackResourceSummaries": [{"LogicalResourceId": l, "ResourceType": t, "PhysicalResourceId": p} for l, t, p in
         [("Instance", "AWS::EC2::Instance", "i-0aaa1111bbbb2222c"), ("InstanceRole", "AWS::IAM::Role", "forgeline-demo-InstanceRole-X"),

@@ -1,0 +1,100 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Forgeline developer box: one small private EC2 instance with an encrypted disk and no inbound
+  ports. Reach it with SSM Session Manager. It is created for a person for a limited time and
+  deleted with its stack. See deploy/aws/README.md.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: A subnet in that VPC that assigns public IPv4 addresses (outbound access for updates).
+  InstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedValues: [t4g.small, t4g.medium]
+  DiskGiB:
+    Type: Number
+    Default: 30
+    MinValue: 20
+    MaxValue: 100
+  Owner:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9_.@ -]{1,64}$"
+    Description: Who asked for it. Recorded as a tag.
+  ExpiresAt:
+    Type: String
+    AllowedPattern: "^[0-9TZ:-]{20}$"
+    Description: When Forgeline will delete it (UTC, ISO 8601). Recorded as a tag.
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+
+Resources:
+  BoxRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - { Key: forgeline:environment, Value: dev-box }
+        - { Key: Owner, Value: !Ref Owner }
+
+  BoxProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref BoxRole]
+
+  BoxSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Developer box. No inbound rules; outbound only.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress: []
+      Tags:
+        - { Key: forgeline:environment, Value: dev-box }
+        - { Key: Owner, Value: !Ref Owner }
+
+  Box:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref BoxSecurityGroup]
+      IamInstanceProfile: !Ref BoxProfile
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref DiskGiB
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -eu
+          dnf install -y git tmux jq
+      Tags:
+        - { Key: Name, Value: !Sub "dev-box-${Owner}" }
+        - { Key: forgeline:environment, Value: dev-box }
+        - { Key: Owner, Value: !Ref Owner }
+        - { Key: ExpiresAt, Value: !Ref ExpiresAt }
+
+Outputs:
+  InstanceId:
+    Description: The box.
+    Value: !Ref Box
+  Connect:
+    Description: Open a shell on it (needs the AWS CLI and the Session Manager plugin).
+    Value: !Sub "aws ssm start-session --target ${Box} --region ${AWS::Region}"
