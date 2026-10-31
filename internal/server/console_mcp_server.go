@@ -66,8 +66,15 @@ type mcpBucket struct {
 func (m *mcpState) admit(id string, now time.Time) (func(), bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.window == nil || len(m.window) > mcpMaxTracked {
+	if m.window == nil {
 		m.window = map[string]*mcpBucket{}
+	}
+	if len(m.window) > mcpMaxTracked {
+		for id, b := range m.window { // forget only what is idle and a minute old
+			if b.inflight == 0 && now.Sub(b.start) >= time.Minute {
+				delete(m.window, id)
+			}
+		}
 	}
 	b := m.window[id]
 	if b == nil {
@@ -90,8 +97,15 @@ func (m *mcpState) admit(id string, now time.Time) (func(), bool) {
 func (m *mcpState) shouldAuditDenied(ip string, now time.Time) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.deniedAt == nil || len(m.deniedAt) > mcpMaxTracked {
+	if m.deniedAt == nil {
 		m.deniedAt = map[string]time.Time{}
+	}
+	if len(m.deniedAt) > mcpMaxTracked {
+		for ip, t := range m.deniedAt {
+			if now.Sub(t) >= mcpDeniedEvery {
+				delete(m.deniedAt, ip)
+			}
+		}
 	}
 	if t, ok := m.deniedAt[ip]; ok && now.Sub(t) < mcpDeniedEvery {
 		return false
@@ -213,8 +227,12 @@ func (s *Server) lookupRunFailure(ctx context.Context, raw json.RawMessage) (str
 	if f.Tail != "" {
 		b.WriteString("\nEnd of the output of step " + f.Step + ":\n" + f.Tail + "\n")
 	}
-	return b.String(), nil
+	return maskCredentials(b.String()), nil
 }
+
+// mcpOutput masks credentials and then cuts the text, in that order: a credential that straddles the
+// cut would no longer match its pattern.
+func mcpOutput(s string) string { return truncate(maskCredentials(s), maxLookupResult) }
 
 var privateKeyBlock = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)`)
 
@@ -237,11 +255,6 @@ func rpcFail(id json.RawMessage, code int, msg string) rpcResponse {
 
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", "POST")
-		writeError(w, http.StatusMethodNotAllowed, "this MCP endpoint takes POST only")
-		return
-	}
 	if o := r.Header.Get("Origin"); o != "" && !sameOrigin(o, r.Host) {
 		s.audit(r.Context(), Principal{Name: "unknown"}, ip, "mcp.denied", "mcp", "origin "+truncate(o, 80), false)
 		writeError(w, http.StatusForbidden, "cross-origin request refused")
@@ -365,5 +378,5 @@ func (s *Server) mcpCall(ctx context.Context, w http.ResponseWriter, req rpcRequ
 		reply(maskCredentials(err.Error()), true)
 		return
 	}
-	reply(maskCredentials(truncate(out, maxLookupResult)), false)
+	reply(mcpOutput(out), false)
 }

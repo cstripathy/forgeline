@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -46,23 +47,59 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		fmt.Fprintln(stderr, "forgeline: the server URL must be http:// or https://")
 		return 2
 	}
+	if u.Scheme == "http" && !isLoopback(u.Hostname()) {
+		fmt.Fprintln(stderr, "forgeline: the token would cross the network in clear text; use an https:// server URL (http:// is only for this machine)")
+		return 2
+	}
 	client := &http.Client{Timeout: 90 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	sc := bufio.NewScanner(stdin)
-	sc.Buffer(make([]byte, 64<<10), mcpLineLimit)
-	for sc.Scan() {
-		line := bytes.TrimSpace(sc.Bytes())
-		if len(line) == 0 {
-			continue
+	rd := bufio.NewReaderSize(stdin, 64<<10)
+	for {
+		line, tooLong, err := readLine(rd)
+		if tooLong {
+			// The id is unknowable, so answer with a null id like a parse error, and carry on.
+			stdout.Write([]byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"message larger than 1 MiB"}}` + "\n"))
+		} else if line = bytes.TrimSpace(line); len(line) > 0 {
+			if out := forwardMCP(ctx, client, u.String(), token, line); out != nil {
+				stdout.Write(append(out, '\n'))
+			}
 		}
-		if out := forwardMCP(ctx, client, u.String(), token, line); out != nil {
-			stdout.Write(append(out, '\n'))
+		if err != nil {
+			if err != io.EOF {
+				fmt.Fprintf(stderr, "forgeline: reading standard input: %v\n", err)
+				return 1
+			}
+			return 0
 		}
 	}
-	if err := sc.Err(); err != nil {
-		fmt.Fprintf(stderr, "forgeline: reading standard input: %v\n", err)
-		return 1
+}
+
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
 	}
-	return 0
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// readLine reads one line, keeping at most mcpLineLimit bytes. A longer line is read to its end and
+// reported as tooLong, so one oversized message does not end the session.
+func readLine(rd *bufio.Reader) (line []byte, tooLong bool, err error) {
+	for {
+		part, isPrefix, e := rd.ReadLine()
+		if e != nil {
+			return line, tooLong, e
+		}
+		if !tooLong {
+			if len(line)+len(part) > mcpLineLimit {
+				line, tooLong = nil, true
+			} else {
+				line = append(line, part...)
+			}
+		}
+		if !isPrefix {
+			return line, tooLong, nil
+		}
+	}
 }
 
 // forwardMCP sends one message and returns the line to print, or nil when there is nothing to say

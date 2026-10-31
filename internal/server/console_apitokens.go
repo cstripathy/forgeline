@@ -110,6 +110,16 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "reading your tokens", err)
 		return
 	}
+	// Expired tokens are dead weight: remove them rather than count them against the limit.
+	live := mine[:0]
+	for _, t := range mine {
+		if time.Now().After(t.ExpiresAt) {
+			_ = s.docs.Delete(r.Context(), kindAPIToken, t.ID)
+			continue
+		}
+		live = append(live, t)
+	}
+	mine = live
 	if len(mine) >= maxTokensPerUser {
 		writeError(w, http.StatusConflict, fmt.Sprintf("you already have %d tokens; revoke one first", maxTokensPerUser))
 		return
@@ -195,6 +205,8 @@ func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no such token") // not yours: do not confirm it exists
 		return
 	}
+	s.apiTokens.mu.Lock()
+	defer s.apiTokens.mu.Unlock()
 	if err := s.docs.Delete(r.Context(), kindAPIToken, id); err != nil {
 		s.internalError(w, "revoking the token", err)
 		return
@@ -227,15 +239,28 @@ func (s *Server) authenticateToken(ctx context.Context, secret string) (Principa
 		role = u.Role
 	}
 	if t.LastUsed == nil || now.Sub(*t.LastUsed) > touchEvery {
-		n := now.UTC()
-		t.LastUsed = &n
-		_ = s.docs.Put(ctx, kindAPIToken, t.ID, t)
+		s.touchToken(ctx, t.ID, now.UTC())
 	}
 	return Principal{Name: u.Username, Role: role, UserID: u.ID}, t, true
 }
 
+// touchToken records when a token was last used. It re-reads the token under the lock that
+// revocation also takes, so a token revoked a moment ago is not written back.
+func (s *Server) touchToken(ctx context.Context, id string, at time.Time) {
+	s.apiTokens.mu.Lock()
+	defer s.apiTokens.mu.Unlock()
+	var t APIToken
+	if err := s.docs.Get(ctx, kindAPIToken, id, &t); err != nil {
+		return
+	}
+	t.LastUsed = &at
+	_ = s.docs.Put(ctx, kindAPIToken, id, t)
+}
+
 // dropTokensOf removes every token of a user (the user was deleted or disabled).
 func (s *Server) dropTokensOf(ctx context.Context, userID string) {
+	s.apiTokens.mu.Lock()
+	defer s.apiTokens.mu.Unlock()
 	ts, err := s.tokensOf(ctx, userID)
 	if err != nil {
 		return

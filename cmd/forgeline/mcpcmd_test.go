@@ -77,3 +77,33 @@ func TestMCPProxyRefusesToStartWithoutATokenOrWithABadAddress(t *testing.T) {
 		t.Errorf("stdout = %q", out.String())
 	}
 }
+
+func TestMCPProxyRefusesPlainHTTPToARemoteHostButAllowsThisMachine(t *testing.T) {
+	for _, tc := range []struct {
+		url  string
+		code int
+	}{{"http://forgeline.example.com", 2}, {"http://10.0.0.5:8080", 2}, {"http://localhost:1", 0}, {"http://127.0.0.1:1", 0}, {"http://[::1]:1", 0}} {
+		var errb bytes.Buffer
+		env := map[string]string{"FORGELINE_MCP_TOKEN": "flt_x", "FORGELINE_SERVER": tc.url}
+		code := runMCP(context.Background(), nil, strings.NewReader(""), io.Discard, &errb, func(k string) string { return env[k] })
+		if code != tc.code || tc.code == 2 && !strings.Contains(errb.String(), "clear text") {
+			t.Errorf("%s: code %d, %s", tc.url, code, errb.String())
+		}
+	}
+}
+
+func TestMCPProxyAnswersAnOversizedMessageAndKeepsGoing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{}}`))
+	}))
+	defer srv.Close()
+	huge := `{"jsonrpc":"2.0","id":1,"method":"x","params":"` + strings.Repeat("a", mcpLineLimit+100) + `"}`
+	in := huge + "\n" + `{"jsonrpc":"2.0","id":2,"method":"ping"}` + "\n"
+	var out bytes.Buffer
+	env := map[string]string{"FORGELINE_MCP_TOKEN": "flt_x", "FORGELINE_SERVER": srv.URL}
+	code := runMCP(context.Background(), nil, strings.NewReader(in), &out, io.Discard, func(k string) string { return env[k] })
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if code != 0 || len(lines) != 2 || !strings.Contains(lines[0], "larger than 1 MiB") || !strings.Contains(lines[1], `"id":2`) {
+		t.Errorf("code %d, out %q", code, out.String())
+	}
+}

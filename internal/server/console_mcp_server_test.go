@@ -191,6 +191,7 @@ func TestMCPAcceptsOnlyPersonalTokensAndChecksTheRequest(t *testing.T) {
 		t.Errorf("a disabled person's token: %d", resp.StatusCode)
 	}
 	m.admin.expect(200, "PATCH", "/v1/users/dev", map[string]any{"disabled": false})
+	tok = m.newToken(m.login("dev"), map[string]any{"name": "again"}) // the old ones are gone for good
 
 	// The request itself.
 	if resp, _ := m.mcpDo(tok, ping, map[string]string{"Origin": "https://evil.example"}); resp.StatusCode != 403 {
@@ -488,3 +489,114 @@ func TestDeletingAPersonRemovesTheirTokens(t *testing.T) {
 }
 
 var docstoreAll = docstore.ListOptions{}
+
+func TestARevokedTokenIsNotWrittenBackByALateLastUsedUpdate(t *testing.T) {
+	m := newMCPHarness(t)
+	tok := m.newToken(m.dev, map[string]any{"name": "d"})
+	var list struct{ Tokens []APIToken }
+	json.Unmarshal(m.dev.expect(200, "GET", "/v1/tokens", nil), &list)
+	id := list.Tokens[0].ID
+	m.dev.expect(204, "DELETE", "/v1/tokens/"+id, nil)
+	m.srv.touchToken(context.Background(), id, time.Now())
+	var back APIToken
+	if err := m.srv.docs.Get(context.Background(), kindAPIToken, id, &back); err == nil {
+		t.Errorf("a late last-used update wrote the token back: %+v", back)
+	}
+	if resp, _ := m.mcpDo(tok, []byte(`{"jsonrpc":"2.0","id":1,"method":"ping"}`), nil); resp.StatusCode != 401 {
+		t.Errorf("a revoked token came back: %d", resp.StatusCode)
+	}
+}
+
+func TestDisablingAPersonRemovesTheirTokensSoEnablingDoesNotRevive(t *testing.T) {
+	m := newMCPHarness(t)
+	tok := m.newToken(m.dev, map[string]any{"name": "d"})
+	m.admin.expect(200, "PATCH", "/v1/users/dev", map[string]any{"disabled": true})
+	m.admin.expect(200, "PATCH", "/v1/users/dev", map[string]any{"disabled": false})
+	if resp, _ := m.mcpDo(tok, []byte(`{"jsonrpc":"2.0","id":1,"method":"ping"}`), nil); resp.StatusCode != 401 {
+		t.Errorf("an old token came back with the person: %d", resp.StatusCode)
+	}
+}
+
+func TestExpiredTokensDoNotCountAgainstTheLimitAndAreRemoved(t *testing.T) {
+	m := newMCPHarness(t)
+	for i := 0; i < maxTokensPerUser; i++ {
+		m.newToken(m.dev, map[string]any{"name": "t"})
+	}
+	m.dev.expect(409, "POST", "/v1/tokens", map[string]any{"name": "x"})
+	var list struct{ Tokens []APIToken }
+	json.Unmarshal(m.dev.expect(200, "GET", "/v1/tokens", nil), &list)
+	for _, tk := range list.Tokens {
+		tk.ExpiresAt = time.Now().Add(-time.Hour)
+		m.srv.docs.Put(context.Background(), kindAPIToken, tk.ID, tk)
+	}
+	m.newToken(m.dev, map[string]any{"name": "fresh"})
+	json.Unmarshal(m.dev.expect(200, "GET", "/v1/tokens", nil), &list)
+	if len(list.Tokens) != 1 || list.Tokens[0].Name != "fresh" {
+		t.Errorf("tokens = %+v", list.Tokens)
+	}
+}
+
+func TestMCPOutputIsMaskedBeforeItIsCut(t *testing.T) {
+	key := "ghp_" + strings.Repeat("k", 36)
+	text := strings.Repeat("x", maxLookupResult-10) + " " + key + " tail"
+	out := mcpOutput(text)
+	if strings.Contains(out, "ghp_") || len([]rune(out)) > maxLookupResult {
+		t.Errorf("a credential straddling the cut got through: …%q (%d runes)", out[len(out)-30:], len([]rune(out)))
+	}
+}
+
+func TestMCPLimiterForgetsOnlyIdleOldEntriesWhenItIsFull(t *testing.T) {
+	var st mcpState
+	now := time.Now()
+	st.window = map[string]*mcpBucket{"hot": {start: now, calls: mcpCallsPerMin}}
+	for i := 0; i <= mcpMaxTracked; i++ {
+		st.window[string(rune('a'+i%26))+strings.Repeat("z", i)] = &mcpBucket{start: now.Add(-5 * time.Minute)}
+	}
+	if _, ok := st.admit("someone-new", now); !ok {
+		t.Fatal("a new token was refused")
+	}
+	if len(st.window) > 10 {
+		t.Errorf("%d entries kept; the idle old ones should go", len(st.window))
+	}
+	if _, ok := st.admit("hot", now); ok {
+		t.Error("clearing the map reset a token that was at its limit")
+	}
+	st.deniedAt = map[string]time.Time{"1.1.1.1": now}
+	for i := 0; i <= mcpMaxTracked; i++ {
+		st.deniedAt["old"+strings.Repeat("z", i)] = now.Add(-time.Hour)
+	}
+	if st.shouldAuditDenied("1.1.1.1", now) {
+		t.Error("an address in its quiet minute was audited again after the map was trimmed")
+	}
+}
+
+func TestRunFailureNeverReturnsACredentialToTheAssistantEither(t *testing.T) {
+	m := newMCPHarness(t)
+	id := m.failedRun(twoStepYAML, 1, "", "using AKIAABCDEFGHIJKLMNOP failed\n")
+	out, err := m.srv.lookupRunFailure(context.Background(), json.RawMessage(`{"id":"`+id+`"}`))
+	if err != nil || strings.Contains(out, "AKIAABCDEFGHIJKLMNOP") || !strings.Contains(out, credentialMask) {
+		t.Errorf("%q (%v)", out, err)
+	}
+}
+
+func TestProposalsFiledOverMCPRecordTheClientAddress(t *testing.T) {
+	m := newMCPHarness(t)
+	m.turnOn()
+	dev := m.newToken(m.dev, map[string]any{"name": "d"})
+	out, isErr := m.tool(dev, toolProposeAWS, map[string]any{"title": "Scale web to two tasks", "reason": "web is over-provisioned at three tasks", "code": changeScript})
+	if isErr || !strings.Contains(out, "Nothing has run") {
+		t.Fatalf("propose = %q", out)
+	}
+	var found bool
+	var events struct{ Events []AuditEvent }
+	raw := m.admin.expect(200, "GET", "/v1/audit?limit=100", nil)
+	json.Unmarshal(raw, &events)
+	for _, e := range events.Events {
+		if e.Action == "ai.proposal.create" && e.IP != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no ai.proposal.create entry with an address: %s", raw)
+	}
+}

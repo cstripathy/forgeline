@@ -13,7 +13,8 @@ The shared server token means "administrator" and is never accepted here. A pers
 
 - It belongs to one user and has a role no higher than that user's, chosen at creation (viewer,
   developer or admin). The effective role is the lower of the token's and the user's *now*, so a
-  demoted or disabled user loses the token's power at once.
+  demoted user loses the token's power at once. Disabling or deleting a person deletes their tokens,
+  so enabling them again does not bring old tokens back.
 - It is shown once; only its SHA-256 is stored. It expires (default 90 days, at most 365). A user
   has at most 10. The owner (or an administrator) can revoke it.
 - It works on `/mcp` only. A cookie session does not work there (a browser would send it
@@ -24,7 +25,8 @@ The shared server token means "administrator" and is never accepted here. A pers
 Streamable HTTP, stateless: `POST /mcp` takes one JSON-RPC message and answers with JSON
 (`initialize`, `ping`, `tools/list`, `tools/call`; notifications answer 202). `GET` answers 405 (no
 server-initiated stream) and there is no session id. A request with an `Origin` that is not this
-server is refused. `forgeline mcp` is a stdio proxy for clients that only speak stdio: it reads
+server is refused. `forgeline mcp` is a stdio proxy for clients that only speak stdio (it refuses a plain `http://`
+server URL unless the host is this machine, since the token would cross the network in clear): it reads
 messages on stdin, posts them to the server with the token from `FORGELINE_MCP_TOKEN`, and writes
 the answers to stdout.
 
@@ -45,9 +47,9 @@ approves or reads a secret value.
 
 - Every `tools/call` is audited (`mcp.call`, with the caller, tool and a short argument summary),
   and so are refusals (`mcp.denied`) and token creation and revocation.
-- Output is data. It is cut at 12 KB and credential formats (AWS keys, GitHub and Slack tokens,
-  Anthropic keys, private keys, live Stripe keys) are replaced with `[credential removed]` as a
-  second line of defence; the lookups already never return secret values.
+- Output is data. Credential formats are masked first and the text is then cut at 12 KB (the other way round, a credential on the cut would escape). Formats (AWS keys, GitHub and Slack tokens,
+  Anthropic keys, private keys, live Stripe keys) become `[credential removed]` as a second line of
+  defence, in answers, error messages and the audit trail; the lookups already never return secret values.
 - Limits: 1 MiB request bodies, 60 calls a minute and 4 at once per token, 60 seconds per call.
 - Proposals made this way are filed as the token's user and cannot be approved by that user, and
   each audit entry names the token that made the call.
