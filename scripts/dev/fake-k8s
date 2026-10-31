@@ -1,13 +1,26 @@
 #!/usr/bin/env python3
-# A read-only stand-in for the Kubernetes API, with one messy application in it, for trying the
-# console's Kubernetes pages and Guard without a cluster. Serves only GET and rejects any other
-# method with 405, like a role that can only read. See README.md.
-#   FAKE_K8S_PORT (default 18090), FAKE_K8S_TOKEN (default dev-token)
-import json, os, sys
+# A stand-in for the Kubernetes API, with one messy application in it, for trying the console's
+# Kubernetes pages and Guard without a cluster. By default it serves only GET and rejects any other
+# method with 405, like a role that can only read. With FAKE_K8S_WRITE=1 it also accepts PATCH on a
+# Deployment or StatefulSet (replicas, container images, the restart annotation; ?dryRun=All stores
+# nothing), kept in memory, so change proposals can be tried. See README.md.
+#   FAKE_K8S_PORT (default 18090), FAKE_K8S_TOKEN (default dev-token), FAKE_K8S_WRITE (default off)
+import json, os, re, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 TOKEN = os.environ.get("FAKE_K8S_TOKEN", "dev-token")
 PORT = int(os.environ.get("FAKE_K8S_PORT", "18090"))
+WRITE = os.environ.get("FAKE_K8S_WRITE") == "1"
+ITEM = re.compile(r"^/apis/apps/v1/namespaces/([a-z0-9-]+)/(deployments|statefulsets)/([a-z0-9.-]+)$")
+GEN = {}  # item path -> generation
+
+def find(path):
+    m = ITEM.match(path)
+    if not m: return None
+    ns, coll, name = m.groups()
+    for it in DATA["/apis/apps/v1/" + coll]["items"]:
+        if it["metadata"]["name"] == name and it["metadata"]["namespace"] == ns: return it
+    return None
 
 def ctr(name, image, extra=None):
     c = {"name": name, "image": image}
@@ -47,9 +60,36 @@ class H(BaseHTTPRequestHandler):
             return self._send(401, {"message": "Unauthorized"})
         path = self.path.split("?")[0]
         if path in DATA: return self._send(200, DATA[path])
+        it = find(path)
+        if it:
+            it["metadata"]["generation"] = GEN.get(path, 1); it["metadata"]["resourceVersion"] = str(GEN.get(path, 1) * 10)
+            return self._send(200, it)
         self._send(404, {"message": "not found"})
+    def do_PATCH(self):
+        if self.headers.get("Authorization") != "Bearer " + TOKEN:
+            return self._send(401, {"message": "Unauthorized"})
+        if not WRITE: return self._no()
+        path, _, query = self.path.partition("?")
+        it = find(path)
+        if not it: return self._send(404, {"message": "not found"})
+        patch = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        rv = patch.get("metadata", {}).get("resourceVersion")
+        if rv and rv != str(GEN.get(path, 1) * 10): return self._send(409, {"message": "conflict"})
+        new = json.loads(json.dumps(it))
+        spec = patch.get("spec", {})
+        if "replicas" in spec: new["spec"]["replicas"] = spec["replicas"]
+        tpl = spec.get("template", {})
+        for c in tpl.get("spec", {}).get("containers", []):
+            for have in new["spec"]["template"]["spec"]["containers"]:
+                if have["name"] == c["name"]: have["image"] = c["image"]
+        for k, v in tpl.get("metadata", {}).get("annotations", {}).items():
+            new["spec"]["template"].setdefault("metadata", {}).setdefault("annotations", {})[k] = v
+        if "dryRun=All" not in query:
+            it.update(new); GEN[path] = GEN.get(path, 1) + 1
+        new["metadata"]["generation"] = GEN.get(path, 1); new["metadata"]["resourceVersion"] = str(GEN.get(path, 1) * 10)
+        self._send(200, new)
     def _no(self): self._send(405, {"message": "this stand-in is read-only"})
-    do_POST = do_PUT = do_PATCH = do_DELETE = _no
+    do_POST = do_PUT = do_DELETE = _no
 
 if __name__ == "__main__":
     print("fake Kubernetes API on http://127.0.0.1:%d (token %s)" % (PORT, TOKEN), file=sys.stderr)

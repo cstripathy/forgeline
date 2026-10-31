@@ -1,6 +1,6 @@
 # 017: accounts, agents, workflows, environments, guard, marketplace
 
-Status: slices 1 (accounts), 2 (skills and agents, with versions) 3 (workflows), 4 (guard) and 5 (Kubernetes, read-only) 6 (environments) and 7 (marketplace, skills and agents) built; the rest planned. Builds on 013 (AI use cases), 014 (missions
+Status: slices 1 (accounts), 2 (skills and agents, with versions) 3 (workflows), 4 (guard) and 5 (Kubernetes, with change proposals) 6 (environments) and 7 (marketplace, skills and agents) built; the rest planned. Builds on 013 (AI use cases), 014 (missions
 and autonomy tiers), 015 and 016 (AWS access and the AWS MCP Server).
 
 ## The one rule everything keeps
@@ -18,7 +18,7 @@ propose. None of them gets a new way to write. This is what lets us hand people 
 | 2 | **Skills and agents** (built) | A skill is a named, versioned procedure (markdown steps plus the read tools it may use). An agent is instructions plus skills plus a tool allowlist and an autonomy tier. The assistant can hand a task to an agent, and a person can talk to an agent directly | 1 |
 | 3 | **Workflows** (built) | Agents and steps in order or in parallel, with approval gates, started by hand, on a schedule, or when a run fails. Output is a report or proposals | 2 |
 | 4 | **Guard** (built) | Scheduled read-only security reviews per account (public buckets, open security groups, unencrypted volumes, idle resources, stale users), findings with severity and history, exceptions with an expiry, a pipeline guard (unpinned actions, secrets in logs) | 1, 3 |
-| 5 | **Kubernetes** (read-only built) | Register clusters (kubeconfig or EKS), explorer for namespaces, workloads, pods and events, change proposals as a server-side dry-run diff, same approval | 1 |
+| 5 | **Kubernetes** (built) | Register clusters (kubeconfig or EKS), explorer for namespaces, workloads, pods and events, change proposals as a server-side dry-run diff, same approval | 1 |
 | 6 | **Environments** (built) | Temporary infrastructure and dev boxes for developers and QA from templates: owner, time to live, cost cap, auto-destroy, request then approve (or pre-approved class for small ones) | 1, 5 |
 | 7 | **Marketplace** (skills and agents built) | Catalogue of agents, skills, workflow and environment templates, and plugins. Install shows the permissions it asks for. Versions pinned by hash. Plugins are MCP servers run in a container, never in the server process | 2, 3 |
 | 8 | **Per-account writes** | One MCP proxy per account so approved changes can apply outside the primary account; cross-account role assumption; AWS Organizations discovery | 1 |
@@ -90,8 +90,16 @@ machine) and never link-local or a metadata address. Guard rules read workloads 
 section (nodes, deployments, StatefulSets, DaemonSets, pods, services) has its own "was it readable"
 flag. Tested against an in-process API server and `scripts/dev/fake-k8s`, **not against a real
 cluster**: creating a throwaway privileged cluster was not permitted in the build environment.
-Not built: kubeconfig import and exec plugins other than EKS, change proposals as a server-side
-dry-run diff with approval, logs and exec, RBAC and network-policy checks, and multi-page lists beyond
+Change proposals came after: scale, restart and set image on a Deployment or StatefulSet, as
+ordinary cloud changes (`k8s-scale`, `k8s-restart`, `k8s-image`). The preview is the API server's own
+`?dryRun=All` patch compared with the live object; nothing is stored by it. Before applying,
+Forgeline re-reads the workload and refuses if `metadata.generation` moved, and it sends the
+`resourceVersion` it just read so a change in between gets a 409. The client's patch method matches
+only `/apis/apps/v1/namespaces/<ns>/(deployments|statefulsets)/<name>`; the cluster's own namespaces
+are refused; no AWS connection is needed. Tested against an in-process API server and
+`scripts/dev/fake-k8s` (with `FAKE_K8S_WRITE=1`), **not a real cluster**. The assistant and agents
+cannot propose Kubernetes changes yet.
+Not built: kubeconfig import and exec plugins other than EKS, logs and exec, RBAC and network-policy checks, and multi-page lists beyond
 500 items per kind.
 
 ## Slice 6: what was built

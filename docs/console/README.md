@@ -125,8 +125,26 @@ token** that can only get, list and watch (stored in the vault, never shown agai
 steps). Forgeline proves it can read the cluster before saving. The cluster page is the same explorer
 as the AWS account page: nodes, deployments, StatefulSets, DaemonSets, pods, services, namespaces and
 warning events, with state, search and detail. Guard scans clusters too, leaving system namespaces
-out. Forgeline's client can only send GET requests to fixed paths, so reading is safe by construction.
+out. Reading is safe by construction: the client sends GET requests to fixed paths.
 The assistant, agents and workflows can use `k8s_clusters` and `k8s_resources`.
+
+**Changes.** On a cluster page, **Propose a change** (developer and above) offers three operations on
+a Deployment or StatefulSet: scale, restart (a rolling restart) and set a container image. It is an
+ordinary cloud change: the cluster dry-runs it, the **Cloud changes** tab shows exactly what would
+differ (replicas, image, restart; an image not pinned by digest is flagged), and a different
+administrator approves it. Just before applying, Forgeline reads the workload again and refuses if its
+spec changed since the preview, and the patch carries the version it just read so the cluster itself
+refuses a change that slipped in between. The cluster's own namespaces (`kube-system`,
+`kube-public`, `kube-node-lease`) can't be changed, and nothing else (secrets, pods, RBAC, deletes)
+can be, because the client's patch method accepts only Deployment and StatefulSet paths. The cluster's
+token needs the `patch` verb on `deployments` and `statefulsets` for this; without it the preview says
+so and the cluster stays read-only. Assistant, agents and workflows can't propose these changes.
+
+![Proposing a scale change](55-k8s-propose.png)
+
+![The dry-run preview waiting for a second administrator](56-k8s-change-preview.png)
+
+![After approval](57-k8s-change-done.png)
 
 ![A cluster in the explorer](49-kubernetes.png)
 

@@ -7,6 +7,11 @@ section in the pull request that makes the change; a release moves it under its 
 ## [Unreleased]
 
 ### Added
+- **Kubernetes changes.** From a cluster page a developer can propose scaling, a rolling restart or a
+  new container image for a Deployment or StatefulSet. The cluster dry-runs it, the approver sees
+  what would differ, and a different administrator approves it, like any cloud change. It is
+  refused if the workload changed after the preview, and the cluster's own namespaces and every
+  other resource kind are out of reach. (note 017)
 - **Plugins.** A marketplace package can carry MCP servers shipped as container images. They are off
   until an administrator turns them on (Docker must answer), and install grants nothing by default:
   network and each secret are separate choices. Each call runs in a fresh container that is

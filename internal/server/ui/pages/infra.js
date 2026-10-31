@@ -317,9 +317,9 @@ async function changes(body) {
       h('td', {}, h('div', { class: 'font-medium' }, c.title), h('div', { class: 'muted max-w-lg truncate text-xs' }, c.reason)), h('td', {}, pill(c.status)),
       h('td', { class: 'text-sm' }, c.proposed_by), h('td', { class: 'muted whitespace-nowrap text-sm', title: absTime(c.proposed_at) }, relTime(c.proposed_at)),
       h('td', { class: 'text-sm' }, c.decided_by || h('span', { class: 'muted' }, '–'))));
-    mount(body, notice('info', 'Nothing here changes AWS by itself. A person proposes a change, the preview shows what would happen, and a different administrator approves it. Every step is in the audit log.'),
+    mount(body, notice('info', 'Nothing here changes AWS or a cluster by itself. A person proposes a change, the preview shows what would happen, and a different administrator approves it. Every step is in the audit log.'),
       h('div', { class: 'card mt-4 overflow-x-auto' }, list.length ? h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Change', 'Status', 'Proposed by', 'When', 'Decided by'].map(x => h('th', {}, x)))), h('tbody', {}, rows))
-        : emptyState('cloud', 'No changes yet', 'Propose one from the AWS account tab.')));
+        : emptyState('cloud', 'No changes yet', 'Propose one from the AWS account tab or a Kubernetes cluster.')));
     return list;
   }
 
@@ -334,9 +334,9 @@ async function changes(body) {
       };
       const canDecide = c.status === 'proposed';
       return h('div', { class: 'space-y-4' },
-        h('div', { class: 'flex flex-wrap items-center gap-3' }, pill(c.status), h('span', { class: 'muted text-sm' }, `Proposed by ${c.proposed_by} ${relTime(c.proposed_at)} · account ${c.account} · ${c.region}`)),
+        h('div', { class: 'flex flex-wrap items-center gap-3' }, pill(c.status), h('span', { class: 'muted text-sm' }, `Proposed by ${c.proposed_by} ${relTime(c.proposed_at)} · ` + (c.cluster ? `Kubernetes cluster ${c.cluster_name}` : `account ${c.account} · ${c.region}`))),
         h('div', {}, h('div', { class: 'h-section mb-1' }, 'Reason'), h('p', { class: 'text-sm' }, c.reason)),
-        c.params && Object.keys(c.params).length ? h('div', {}, h('div', { class: 'h-section mb-1' }, 'Parameters'), h('dl', { class: 'grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm' }, Object.entries(c.params).map(([k, v]) => [h('dt', { class: 'muted' }, k), h('dd', { class: 'break-all font-mono text-xs' }, v)]))) : null,
+        c.params && !c.cluster && Object.keys(c.params).length ? h('div', {}, h('div', { class: 'h-section mb-1' }, 'Parameters'), h('dl', { class: 'grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm' }, Object.entries(c.params).map(([k, v]) => [h('dt', { class: 'muted' }, k), h('dd', { class: 'break-all font-mono text-xs' }, v)]))) : null,
         h('div', {}, h('div', { class: 'h-section mb-1' }, 'What would change'), c.preview.length ? h('div', { class: 'overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800' }, h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['Action', 'Resource', 'Type', 'Detail'].map(x => h('th', {}, x)))),
           h('tbody', {}, c.preview.map(p => h('tr', {}, h('td', {}, h('span', { class: /Remove|Delete/.test(p.action) ? 'pill-bad' : /Modify|Stop|Reboot/.test(p.action) ? 'pill-wait' : 'pill-ok' }, p.action)), h('td', { class: 'font-medium' }, p.resource), h('td', { class: 'font-mono text-xs' }, p.type), h('td', { class: 'text-xs' }, [p.replacement && 'replacement: ' + p.replacement, p.detail].filter(Boolean).join(' · ')))))))
           : h('p', { class: 'muted text-sm' }, c.status === 'preparing' ? 'AWS is working out the preview…' : 'No preview is available.')),
@@ -346,7 +346,7 @@ async function changes(body) {
           c.proposed_by === me && h('span', { class: 'muted mr-auto self-center text-xs' }, 'You proposed this, so someone else must approve it.'),
           (c.proposed_by === me || admin) && h('button', { class: 'btn-secondary', type: 'button', onclick: () => act('cancel', 'Canceled') }, 'Cancel proposal'),
           admin && h('button', { class: 'btn-secondary', type: 'button', onclick: () => act('reject', 'Rejected') }, 'Reject'),
-          admin && h('button', { class: 'btn-primary', type: 'button', disabled: c.proposed_by === me, onclick: async () => { if (await confirmDialog({ title: 'Approve and run this change?', body: 'It will run against AWS account ' + c.account + ' straight away.', confirmLabel: 'Approve and run' })) act('approve', 'Approved. Running now.'); } }, icon('check', 'size-4'), 'Approve and run'))));
+          admin && h('button', { class: 'btn-primary', type: 'button', disabled: c.proposed_by === me, onclick: async () => { if (await confirmDialog({ title: 'Approve and run this change?', body: c.cluster ? 'It will be applied to the cluster ' + c.cluster_name + ' straight away.' : 'It will run against AWS account ' + c.account + ' straight away.', confirmLabel: 'Approve and run' })) act('approve', 'Approved. Running now.'); } }, icon('check', 'size-4'), 'Approve and run'))));
     }, { wide: true });
   }
 

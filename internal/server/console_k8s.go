@@ -103,6 +103,8 @@ func newK8sConn(server, ca string, token func(context.Context) (string, error)) 
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
+var errK8sNone = errors.New("this cluster does not offer it")
+
 // get reads one fixed API path into out.
 func (c k8sConn) get(ctx context.Context, path string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.server+path, nil)
@@ -127,7 +129,7 @@ func (c k8sConn) get(ctx context.Context, path string, out any) error {
 	case resp.StatusCode == http.StatusForbidden:
 		return errors.New("the credentials are not allowed to read this")
 	case resp.StatusCode == http.StatusNotFound:
-		return errors.New("this cluster does not offer it")
+		return errK8sNone
 	case resp.StatusCode >= 300:
 		return fmt.Errorf("the cluster answered %d", resp.StatusCode)
 	}

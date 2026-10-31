@@ -81,6 +81,15 @@ type CloudChange struct {
 	InstanceID string            `json:"instance_id,omitempty"`
 	Action     string            `json:"action,omitempty"`
 
+	// Kubernetes changes: the registered cluster, the workload and what to set on it.
+	Cluster     string `json:"cluster,omitempty"`
+	ClusterName string `json:"cluster_name,omitempty"`
+	Namespace   string `json:"namespace,omitempty"`
+	Workload    string `json:"workload,omitempty"`
+	Replicas    *int   `json:"replicas,omitempty"`
+	Container   string `json:"container,omitempty"`
+	Image       string `json:"image,omitempty"`
+
 	ChangeSet     string          `json:"change_set,omitempty"`
 	ChangeSetType string          `json:"change_set_type,omitempty"`
 	Preview       []ChangePreview `json:"preview"`
@@ -103,6 +112,8 @@ func (c CloudChange) target() string {
 	switch c.Kind {
 	case kindInstanceAction:
 		return "instance/" + c.InstanceID
+	case kindK8sScale, kindK8sRestart, kindK8sImage:
+		return "k8s/" + c.Cluster + "/" + c.Namespace + "/" + c.Workload
 	default:
 		return "stack/" + c.Stack
 	}
@@ -221,6 +232,13 @@ type proposeRequest struct {
 	Params     map[string]string `json:"params"`
 	InstanceID string            `json:"instance_id"`
 	Action     string            `json:"action"`
+
+	Cluster   string `json:"cluster"`
+	Namespace string `json:"namespace"`
+	Workload  string `json:"workload"`
+	Replicas  *int   `json:"replicas"`
+	Container string `json:"container"`
+	Image     string `json:"image"`
 }
 
 // httpErr is a refusal with the status the HTTP handler should answer.
@@ -254,6 +272,9 @@ func (s *Server) handlePropose(w http.ResponseWriter, r *http.Request) {
 // proposeChange records a change and prepares its preview in the background. The environment engine
 // calls it too, as a person or as a named policy; nothing about approval is decided here.
 func (s *Server) proposeChange(ctx context.Context, p Principal, ip string, req proposeRequest) (CloudChange, *httpErr) {
+	if strings.HasPrefix(req.Kind, "k8s-") {
+		return s.proposeK8s(ctx, p, ip, req)
+	}
 	st := s.loadAWS(ctx)
 	if !st.Enabled {
 		return CloudChange{}, refusal(http.StatusConflict, "connect an AWS account first (Infrastructure → AWS)")
@@ -319,18 +340,29 @@ func (s *Server) proposeChange(ctx context.Context, p Principal, ip string, req 
 	json.Unmarshal(idOut, &id)
 	c.Account = id.Account
 
+	return s.storeAndPrepare(ctx, p, ip, c, func(ctx context.Context, c *CloudChange) error { return prepare(ctx, c, st) })
+}
+
+// storeAndPrepare saves a new proposal and works out its preview in the background.
+func (s *Server) storeAndPrepare(ctx context.Context, p Principal, ip string, c CloudChange, prepare func(context.Context, *CloudChange) error) (CloudChange, *httpErr) {
 	if err := s.docs.Create(ctx, kindCloud, c.ID, c); err != nil {
 		return CloudChange{}, refusal(http.StatusInternalServerError, err.Error())
 	}
 	_ = s.audit(ctx, p, ip, "cloud.propose", c.target(), c.Title+" — "+c.Reason, true)
 	// The worker owns its own copy; the response is what was saved, not what it will become.
 	work := c
+	if c.Params != nil {
+		work.Params = map[string]string{}
+		for k, v := range c.Params {
+			work.Params[k] = v
+		}
+	}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Minute)
 		defer cancel()
-		if err := prepare(pctx, &work, st); err != nil {
+		if err := prepare(pctx, &work); err != nil {
 			work.Status, work.Result = stFailed, err.Error()
 			now := time.Now().UTC()
 			work.FinishedAt = &now
@@ -645,20 +677,28 @@ func (s *Server) approveChange(ctx context.Context, id string, p Principal, ip, 
 	if other, ok := s.cloud.busy[c.target()]; ok {
 		return refuse(http.StatusConflict, "another change ("+other+") is already running against "+c.target())
 	}
-	st := s.loadAWS(ctx)
-	if !st.Enabled || st.Profile != c.Profile || st.Region != c.Region {
-		return refuse(http.StatusConflict, "the AWS connection changed since this was proposed; propose it again")
-	}
-	// The account must still be the one the preview was made against.
-	idOut, err := s.aws(ctx, st, "sts", "get-caller-identity")
-	if err != nil {
-		s.cloud.mu.Unlock()
-		return CloudChange{}, refusal(http.StatusBadGateway, err.Error())
-	}
-	var acct struct{ Account string }
-	json.Unmarshal(idOut, &acct)
-	if acct.Account != c.Account {
-		return refuse(http.StatusConflict, fmt.Sprintf("the server is now in AWS account %s, but this was prepared for %s", acct.Account, c.Account))
+	var st awsSettings
+	if c.isK8s() {
+		cl, lerr := s.loadK8sCluster(ctx, c.Cluster)
+		if lerr != nil || cl.Server != c.Params["server"] {
+			return refuse(http.StatusConflict, "the cluster was removed or changed since this was proposed; propose it again")
+		}
+	} else {
+		st = s.loadAWS(ctx)
+		if !st.Enabled || st.Profile != c.Profile || st.Region != c.Region {
+			return refuse(http.StatusConflict, "the AWS connection changed since this was proposed; propose it again")
+		}
+		// The account must still be the one the preview was made against.
+		idOut, err := s.aws(ctx, st, "sts", "get-caller-identity")
+		if err != nil {
+			s.cloud.mu.Unlock()
+			return CloudChange{}, refusal(http.StatusBadGateway, err.Error())
+		}
+		var acct struct{ Account string }
+		json.Unmarshal(idOut, &acct)
+		if acct.Account != c.Account {
+			return refuse(http.StatusConflict, fmt.Sprintf("the server is now in AWS account %s, but this was prepared for %s", acct.Account, c.Account))
+		}
 	}
 
 	now := time.Now().UTC()
@@ -747,6 +787,8 @@ func (s *Server) executeChange(ctx context.Context, c CloudChange, st awsSetting
 		result, err = s.executeDelete(ctx, c, st)
 	case kindInstanceAction:
 		result, err = s.executeInstance(ctx, c, st)
+	case kindK8sScale, kindK8sRestart, kindK8sImage:
+		result, err = s.executeK8s(ctx, c)
 	}
 	now := time.Now().UTC()
 	c.FinishedAt, c.Result = &now, result

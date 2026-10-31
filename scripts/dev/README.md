@@ -75,7 +75,9 @@ In the console connect AWS (empty profile, any region), then Infrastructure → 
 
 Serves a read-only cluster with one messy application (a privileged host-networked deployment, a
 crash-looping pod, a node that is not ready, a load balancer service) on `127.0.0.1:18090` with the
-token `dev-token`. It answers any method other than GET with 405.
+token `dev-token`. It answers any method other than GET with 405, unless started with
+`FAKE_K8S_WRITE=1`: then it also takes PATCH on a Deployment or StatefulSet (scale, image, restart;
+`?dryRun=All` stores nothing), in memory, so change proposals can be tried.
 
 ```sh
 python3 scripts/dev/fake-k8s &
