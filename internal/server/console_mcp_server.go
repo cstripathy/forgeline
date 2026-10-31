@@ -41,7 +41,8 @@ var mcpProtocols = map[string]bool{"2025-06-18": true, "2025-03-26": true, "2024
 var mcpReadTools = map[string]bool{
 	"list_runs": true, "get_run": true, "get_step_log": true, "run_failure": true, "list_pipelines": true, "get_pipeline": true,
 	"aws_accounts": true, "aws_resources": true, "aws_summary": true, "k8s_clusters": true, "k8s_resources": true,
-	"guard_findings": true, "list_agents": true, "search_audit": true,
+	"guard_findings": true, "list_agents": true, "search_audit": true, "environment_templates": true,
+	"request_environment": true, // propose-only: it never creates one without a different administrator
 }
 
 const (

@@ -34,9 +34,10 @@ the answers to stdout.
 
 Exactly the assistant's lookups that read: `list_runs`, `get_run`, `get_step_log`, `run_failure`,
 `list_pipelines`, `get_pipeline`, `aws_accounts`, `aws_resources`, `aws_summary`, `k8s_clusters`,
-`k8s_resources`, `guard_findings`, `list_agents`, and `search_audit` (admin). Two propose-only tools
-file the usual four-eyes proposals: `propose_aws_change` (the assistant's script proposal) and
-`propose_cloud_change` (stack deploy, stack delete, instance action). Each tool keeps the role it has
+`k8s_resources`, `guard_findings`, `environment_templates`, `list_agents`, and `search_audit` (admin).
+Three propose-only tools file the usual four-eyes proposals: `propose_aws_change` (the assistant's
+script proposal), `propose_cloud_change` (stack deploy, stack delete, instance action) and
+`request_environment` (never created without a different administrator, even under self-service). Each tool keeps the role it has
 in the console, so a viewer's token sees only the viewer tools.
 
 Left out on purpose: `call_aws` and `aws_script` (raw cloud access, administrators only in the

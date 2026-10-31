@@ -247,12 +247,12 @@ func TestMCPInitializeAndTheToolsEachRoleSees(t *testing.T) {
 			t.Errorf("a viewer lacks %s", n)
 		}
 	}
-	for _, n := range []string{"propose_cloud_change", "propose_aws_change", "search_audit"} {
+	for _, n := range []string{"propose_cloud_change", "propose_aws_change", "request_environment", "search_audit"} {
 		if v[n] {
 			t.Errorf("a viewer has %s", n)
 		}
 	}
-	if !d["propose_cloud_change"] || !d["propose_aws_change"] || !d["list_agents"] || d["search_audit"] {
+	if !d["environment_templates"] || !d["request_environment"] || !d["propose_cloud_change"] || !d["propose_aws_change"] || !d["list_agents"] || d["search_audit"] {
 		t.Errorf("developer tools: %v", d)
 	}
 	if !a["search_audit"] {
