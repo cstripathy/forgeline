@@ -7,6 +7,12 @@ section in the pull request that makes the change; a release moves it under its 
 ## [Unreleased]
 
 ### Added
+- **Pipeline guard.** Guard now reads saved pipelines and recent run logs, with no cloud account
+  needed: unpinned images, secrets with open network, agent steps holding extra secrets, credentials
+  or secret-looking values written into a pipeline file, `curl | sh`, scripts that print secrets, and
+  credential formats in run logs. Findings never repeat the value.
+- **Why a run failed.** A failed run shows a plain summary: the step that failed first, the likely
+  causes, what did not run because of it, and the end of its output.
 - **Plugins.** A marketplace package can carry MCP servers shipped as container images. They are off
   until an administrator turns them on (Docker must answer), and install grants nothing by default:
   network and each secret are separate choices. Each call runs in a fresh container that is

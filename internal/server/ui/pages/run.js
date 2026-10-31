@@ -10,7 +10,7 @@ const TERMINAL = new Set(['succeeded', 'failed', 'canceled']);
 export async function runPage({ params }) {
   const id = params.id;
   const el = h('div', {});
-  let run = null, selected = null, userPicked = false, timer = null, viewer = null, shownStep = null, dead = false;
+  let run = null, failure = null, failureFor = '', failureTries = 0, selected = null, userPicked = false, timer = null, viewer = null, shownStep = null, dead = false;
   const canAct = atLeast(session.role, 'developer');
 
   async function refresh() {
@@ -19,6 +19,14 @@ export async function runPage({ params }) {
       return;
     }
     if (dead) return;
+    if (run.status === 'failed' && failureFor !== run.id) {
+      failureFor = run.id;
+      try { failure = await get('/v1/runs/' + encodeURIComponent(id) + '/failure'); failureTries = 0; } catch {
+        failure = null;
+        // A glitch should not hide the summary for good: try again a couple of times.
+        if (++failureTries < 3) { failureFor = ''; setTimeout(() => { if (!dead) refresh(); }, 2000); }
+      }
+    }
     if (!userPicked) selected = pickDefault(run);
     render();
     if (TERMINAL.has(run.status)) stop();
@@ -38,6 +46,25 @@ export async function runPage({ params }) {
 
   async function runAgain() {
     try { const r = await post('/v1/pipelines/' + encodeURIComponent(run.pipeline_id) + '/run'); navigate('/runs/' + r.id); } catch (e) { toast(e.message, 'error'); }
+  }
+
+  function failureCard() {
+    if (run.status !== 'failed' || !failure || !failure.failed) return null;
+    const ask = () => {
+      const input = document.querySelector('#assistant-input') || (document.querySelector('#assistant-open')?.click(), document.querySelector('#assistant-input'));
+      if (input) { input.value = `Run ${run.id} of ${run.pipeline} failed${failure.step ? ' at step ' + failure.step : ''}. Explain what went wrong and what I should change in the pipeline file.`; input.focus(); }
+    };
+    return h('section', { class: 'card card-pad mb-4', id: 'failure-summary', 'aria-labelledby': 'failure-title' },
+      h('div', { class: 'mb-2 flex flex-wrap items-center justify-between gap-2' },
+        h('h2', { id: 'failure-title', class: 'h-section' }, 'What went wrong'),
+        h('div', { class: 'flex gap-2' },
+          failure.step && h('button', { class: 'btn-secondary btn-sm', type: 'button', id: 'failure-show-step', onclick: () => { selected = failure.step; userPicked = true; render(); } }, 'Show the step'),
+          canAct && h('button', { class: 'btn-secondary btn-sm', type: 'button', id: 'failure-ask', onclick: ask }, icon('sparkle', 'size-3.5'), 'Ask the assistant'))),
+      h('p', { class: 'text-sm font-medium' }, failure.headline),
+      failure.causes.length ? h('ul', { class: 'mt-2 list-disc space-y-1 pl-5 text-sm' }, failure.causes.map(c => h('li', {}, c))) : null,
+      failure.skipped.length ? h('p', { class: 'muted mt-2 text-sm' }, 'Did not run because of it: ' + failure.skipped.join(', ')) : null,
+      failure.tail ? h('details', { class: 'mt-3' }, h('summary', { class: 'cursor-pointer text-sm' }, 'End of the output'),
+        h('pre', { class: 'mt-2 max-h-72 overflow-auto rounded-lg bg-slate-950 p-3 font-mono text-xs text-slate-100' }, failure.tail)) : null);
   }
 
   function render() {
@@ -62,6 +89,7 @@ export async function runPage({ params }) {
         live && canAct && h('button', { class: 'btn-secondary', type: 'button', onclick: cancel }, icon('stop', 'size-3.5'), 'Cancel'),
         !live && canAct && run.pipeline_id && h('button', { class: 'btn-primary', type: 'button', onclick: runAgain }, icon('play', 'size-3.5'), 'Run again')),
       run.reason && run.status !== 'succeeded' && h('div', { class: 'mb-4' }, errorBox(run.reason)),
+      failureCard(),
       h('dl', { class: 'card card-pad mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5' },
         meta('Started by', run.triggered_by || run.trigger),
         meta('Trigger', run.trigger + (run.pipeline_version ? ' · v' + run.pipeline_version : '')),

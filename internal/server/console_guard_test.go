@@ -165,7 +165,7 @@ func ruleSet(fs []GuardFindingView) map[string]GuardFindingView {
 func TestGuardFindsEachProblemAndNothingElse(t *testing.T) {
 	m, _ := guardHarness(t)
 	sc := m.scan(map[string]any{})
-	if sc.Status != "done" || len(sc.Accounts) != 1 || sc.Accounts[0].Error != "" || len(sc.Accounts[0].Skipped) != 0 {
+	if sc.Status != "done" || len(sc.Accounts) != 2 || sc.Accounts[1].Account != "pipelines" || sc.Accounts[0].Error != "" || len(sc.Accounts[0].Skipped) != 0 {
 		t.Fatalf("scan = %+v", sc)
 	}
 	got := ruleSet(m.findings("").Findings)
@@ -328,7 +328,7 @@ func TestGuardScansEveryAccountAndAccountsAreIndependent(t *testing.T) {
 	m, st := guardHarness(t)
 	m.admin.expect(201, "POST", "/v1/aws/accounts", map[string]any{"name": "Staging", "profile": "staging", "region": "eu-west-1"})
 	sc := m.scan(map[string]any{})
-	if len(sc.Accounts) != 2 || sc.Accounts[0].Findings == 0 || sc.Accounts[1].Findings == 0 {
+	if len(sc.Accounts) != 3 || sc.Accounts[0].Findings == 0 || sc.Accounts[1].Findings == 0 {
 		t.Fatalf("scan = %+v", sc.Accounts)
 	}
 	byAccount := map[string]int{}
@@ -378,9 +378,9 @@ func TestGuardOneScanAtATimeAndNeedsAnAccount(t *testing.T) {
 		return len(out.Scans) > 0 && out.Scans[0].Status != "running"
 	})
 	m.v.expect(403, "POST", "/v1/guard/scan", map[string]any{})
-	// No account connected at all.
+	// No account connected at all: only the pipelines can be scanned, and an account that isn't there is refused.
 	m.admin.expect(200, "PUT", "/v1/integrations/aws", map[string]any{"enabled": false, "profile": "", "region": ""})
-	m.dev.expect(422, "POST", "/v1/guard/scan", map[string]any{})
+	m.dev.expect(422, "POST", "/v1/guard/scan", map[string]any{"account": "ghost"})
 }
 
 func TestGuardAutomaticScansAndSettings(t *testing.T) {

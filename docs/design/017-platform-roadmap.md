@@ -75,9 +75,19 @@ settings and the IAM credential report, so a scan is fast, free and repeatable, 
 same thing every time. The AI part reads and explains them (`guard_findings`) rather than deciding
 what is a problem. Findings reconcile per source: each explorer service, plus `s3-access` and `iam`,
 has its own "was it readable" flag, so a denied read leaves its findings open. Not built: GuardDuty,
-Security Hub and CloudTrail signals, drift against a stack template, a pipeline guard (unpinned
-actions, secrets in logs), Kubernetes checks, and turning a finding into a fix proposal in one click
-(many fixes, such as revoking a rule, are outside what proposals may do).
+Security Hub and CloudTrail signals, drift against a stack template, and turning a finding into a fix
+proposal in one click (many fixes, such as revoking a rule, are outside what proposals may do).
+
+The pipeline guard (built later) is a third scan source, `pipelines`, that needs no cloud account:
+it reads saved pipelines (static rules over the parsed steps) and the first 2 MB of each step's log
+in the 25 newest runs (credential formats). Its two services, `pipe-pipelines` and `pipe-logs`,
+reconcile like any other for pipelines (fixing or deleting one resolves its findings), but a scan never
+resolves a log finding: a leaked credential is not safe because its run scrolled away. An
+administrator accepts it once it is revoked. A finding names the variable or the kind of
+credential and never repeats a value. The log check cannot see a credential in a format it doesn't
+know, and exact-value masking is the only protection for the rest (design note 005, T3). The failure
+summary on the run page (`GET /v1/runs/{id}/failure`) is rule-based from the recorded exit code,
+error and log tail.
 
 ## Slice 5: what was built
 

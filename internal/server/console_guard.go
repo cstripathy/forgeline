@@ -456,7 +456,8 @@ func (s *Server) startScan(ctx context.Context, trigger string, by Principal, on
 			}
 		}
 	}
-	if len(accts) == 0 && len(clusters) == 0 {
+	pipelines := only == "" || only == pipelineScanID
+	if len(accts) == 0 && len(clusters) == 0 && !pipelines {
 		s.guard.mu.Unlock()
 		return GuardScan{}, errors.New("there is no AWS account or cluster to scan; connect one first")
 	}
@@ -481,6 +482,10 @@ func (s *Server) startScan(ctx context.Context, trigger string, by Principal, on
 		}
 		for _, c := range clusters {
 			scan.Accounts = append(scan.Accounts, s.scanCluster(cctx, c, time.Now().UTC()))
+			_ = s.docs.Put(context.Background(), kindGuardScan, scan.ID, scan)
+		}
+		if pipelines {
+			scan.Accounts = append(scan.Accounts, s.scanPipelines(cctx, time.Now().UTC()))
 			_ = s.docs.Put(context.Background(), kindGuardScan, scan.ID, scan)
 		}
 		now := time.Now().UTC()

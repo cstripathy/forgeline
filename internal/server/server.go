@@ -72,6 +72,8 @@ type Server struct {
 	cfg Config
 	log *slog.Logger
 
+	failures failureCache
+
 	wake chan struct{}
 
 	mu            sync.Mutex
