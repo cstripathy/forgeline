@@ -158,7 +158,7 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | Method and path | Role | Purpose |
 | --- | --- | --- |
 | `GET /v1/cloud/catalog` | developer | Templates that can be deployed, and the instance actions. |
-| `POST /v1/cloud/changes` | developer | Propose. Body: `kind` (`stack-deploy`, `stack-delete` or `instance-action`), `reason`, and `template`, `stack`, `params` or `instance_id`, `action` (`start`, `stop`, `reboot`). |
+| `POST /v1/cloud/changes` | developer | Propose. Body: `kind` (`stack-deploy`, `stack-delete`, `instance-action`, `k8s-scale`, `k8s-restart` or `k8s-image`), `reason`, and `template`, `stack`, `params` or `instance_id`, `action` (`start`, `stop`, `reboot`); for a Kubernetes kind, `cluster`, `namespace`, `workload` (`deployment/NAME` or `statefulset/NAME`) and `replicas`, or `container` and `image`. A Kubernetes change needs no AWS connection; its preview is the cluster's server-side dry run. |
 | `GET /v1/cloud/changes` | viewer | List. |
 | `GET /v1/cloud/changes/{id}` | viewer | One change, including the preview of exactly what would happen. |
 | `POST /v1/cloud/changes/{id}/approve` | admin | Body: `note`. Not allowed for the person who proposed it. Runs the change. |

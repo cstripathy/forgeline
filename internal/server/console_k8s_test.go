@@ -20,6 +20,7 @@ type fakeK8s struct {
 	token string
 	deny  map[string]int // path prefix -> status to answer with
 	fixed bool           // the problems are fixed
+	wl    fakeWorkload   // shop/deployment/web, the one workload that can be changed
 }
 
 func newFakeK8s(t *testing.T) *fakeK8s {
@@ -59,6 +60,9 @@ func (f *fakeK8s) serve(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"message":"no"}`, code)
 			return
 		}
+	}
+	if f.workload(w, r) {
+		return
 	}
 	pr := func(v bool) string { return fmt.Sprint(v) }
 	container := func(name, image, extra string) string {
