@@ -229,3 +229,27 @@ choose whether it may use the network and which vault secret it gets for each va
 the defaults give it nothing.
 
 ![Granting a plugin its permissions](54-marketplace-plugin.png)
+
+### Signed packages from git, workflows and environment templates
+
+Third parties can publish packages in a git repository. The person who runs the server sets
+`FORGELINE_MARKET_GIT` (an https or file URL, no credentials), optionally `FORGELINE_MARKET_GIT_REF`
+(default `main`) and the keys they trust in `FORGELINE_MARKET_KEYS` as `id=base64` entries. The page then
+shows the source, its trusted keys and the last fetch, with **Fetch now** for administrators (it also
+fetches at start and every hour). A package from git is installable only if a trusted key signed it;
+otherwise it is listed as damaged with the reason (no signature, an untrusted key, a signature that does
+not match, a version older than one already seen, or a different manifest for a version already seen).
+Nothing from the repository is ever run. An update must come from the same source and signer as the
+install. Publishers use `forgeline market keygen NAME` and `forgeline market sign -key NAME.key
+manifest.json`. See design note 019.
+
+![Signed packages and the git source](60-signed-packages.png)
+
+![An untrusted signer](62-package-untrusted-signer.png)
+
+A package can also hold **workflows** (steps name the package's own agents; never scheduled; at tier T0
+they run as a viewer) and **environment templates** (a CloudFormation body with its parameters and the
+publisher's cost estimate; always approved by an administrator, never self-service, and no IAM, nested
+stacks, custom resources or macros). The review shows both in full, including the template body.
+
+![A package with a workflow and an environment template](61-package-workflow-template.png)

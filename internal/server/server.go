@@ -75,6 +75,7 @@ type Server struct {
 	failures  failureCache
 	apiTokens apiTokenState
 	mcp       mcpState
+	market    marketGit
 
 	wake chan struct{}
 
@@ -240,6 +241,7 @@ func (s *Server) Start(ctx context.Context) error {
 		s.reportFinished(r, store.RunFailed, "server restarted")
 	}
 	s.startWorkflows(ctx)
+	s.startMarketGit(ctx)
 	for i := 0; i < s.cfg.MaxRuns; i++ {
 		s.wg.Add(1)
 		go func() {

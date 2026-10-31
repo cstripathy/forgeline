@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -40,7 +41,7 @@ func listMarket(t *testing.T, c *browser) []marketEntry {
 }
 
 func TestShippedCatalogueIsValidAndHashed(t *testing.T) {
-	cat := marketCatalog()
+	cat := (&Server{}).marketCatalog(context.Background())
 	if len(cat) < 4 {
 		t.Fatalf("only %d packages shipped", len(cat))
 	}
@@ -223,7 +224,7 @@ func TestLocalDirectoryIsAnotherSourceWithTheSameChecks(t *testing.T) {
 	publish(t, samplePkg(1, "Steps."))
 	t.Setenv("FORGELINE_MARKET_DIR", dir)
 	got := map[string]marketEntry{}
-	for _, e := range marketCatalog() {
+	for _, e := range (&Server{}).marketCatalog(context.Background()) {
 		got[e.ID] = e
 	}
 	if g := got["local-good"]; g.Source != "local" || g.Problem != "" {

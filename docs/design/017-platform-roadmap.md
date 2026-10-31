@@ -54,10 +54,8 @@ tier (the most any agent from the package may reach); an agent's own tier is cap
 proposal tool is dropped at T0. An update appends versions to the skills and agents it made, skips
 unchanged ones, and cannot raise the tier. Uninstall disables the agents and keeps everything.
 
-Not built: a git source of signed manifests (so third parties can publish), signatures beyond the
-hash, workflow and environment-template packages, and plugins. A plugin is an MCP server in a
-container that the server talks to over a socket, with no network unless its manifest asks and an
-administrator allows it; it needs its own design note before code.
+Plugins came later (note 018), and then signed manifests from a git source, workflow packages and
+environment-template packages (note 019).
 
 ## Slice 3: what was built
 

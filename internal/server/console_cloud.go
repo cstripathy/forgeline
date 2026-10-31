@@ -172,7 +172,7 @@ func protectedStack(name string) bool {
 }
 
 func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"templates": catalog, "instance_actions": []string{"start", "stop", "reboot"}})
+	writeJSON(w, http.StatusOK, map[string]any{"templates": s.allTemplates(r.Context()), "instance_actions": []string{"start", "stop", "reboot"}})
 }
 
 // --- listing ---
@@ -290,7 +290,7 @@ func (s *Server) proposeChange(ctx context.Context, p Principal, ip string, req 
 	var prepare func(context.Context, *CloudChange, awsSettings) error
 	switch req.Kind {
 	case kindStackDeploy:
-		tpl, ok := findTemplate(req.Template)
+		tpl, ok := s.findTemplate(ctx, req.Template)
 		if !ok {
 			return CloudChange{}, refusal(http.StatusBadRequest, "unknown template")
 		}

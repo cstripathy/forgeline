@@ -25,6 +25,8 @@ Usage:
                        send a pipeline to a server
   forgeline mcp [--server URL]
                        a stdio MCP server that forwards to a Forgeline server's /mcp endpoint
+  forgeline market keygen|sign
+                       make a signing key and sign marketplace packages; see "forgeline market"
   forgeline help       show this message
 `
 
@@ -72,6 +74,8 @@ func runWith(args []string, stdout, stderr io.Writer, ex executor.Executor) int 
 		ctx, stop := signalContext()
 		defer stop()
 		return runMCP(ctx, args[1:], os.Stdin, stdout, stderr, os.Getenv)
+	case "market":
+		return runMarket(args[1:], stdout, stderr)
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return 0

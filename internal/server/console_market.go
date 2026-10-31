@@ -56,18 +56,30 @@ type MarketAgent struct {
 	Tier         string   `json:"tier"`
 }
 
+// MarketWorkflow is a workflow inside a package. Its steps name agents by the key of an agent in the
+// same package; it cannot be scheduled.
+type MarketWorkflow struct {
+	Key         string    `json:"key"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Stages      []WFStage `json:"stages"`
+	RunAs       string    `json:"run_as"`
+}
+
 // MarketPackage is one entry in the catalogue.
 type MarketPackage struct {
-	ID          string         `json:"id"`
-	Version     int            `json:"version"`
-	Title       string         `json:"title"`
-	Description string         `json:"description"`
-	Publisher   string         `json:"publisher"`
-	Tags        []string       `json:"tags"`
-	Skills      []MarketSkill  `json:"skills"`
-	Agents      []MarketAgent  `json:"agents"`
-	Plugins     []MarketPlugin `json:"plugins,omitempty"`
-	SHA256      string         `json:"sha256"`
+	ID           string              `json:"id"`
+	Version      int                 `json:"version"`
+	Title        string              `json:"title"`
+	Description  string              `json:"description"`
+	Publisher    string              `json:"publisher"`
+	Tags         []string            `json:"tags"`
+	Skills       []MarketSkill       `json:"skills"`
+	Agents       []MarketAgent       `json:"agents"`
+	Plugins      []MarketPlugin      `json:"plugins,omitempty"`
+	Workflows    []MarketWorkflow    `json:"workflows,omitempty"`
+	EnvTemplates []MarketEnvTemplate `json:"env_templates,omitempty"`
+	SHA256       string              `json:"sha256"`
 }
 
 // contentHash is the fingerprint of everything but the hash field itself.
@@ -87,8 +99,8 @@ func (p MarketPackage) check() error {
 		return errors.New("the version must be 1 or more")
 	case p.Title == "" || p.Publisher == "":
 		return errors.New("a package needs a title and a publisher")
-	case len(p.Skills)+len(p.Agents)+len(p.Plugins) == 0:
-		return errors.New("a package must hold at least one skill or agent")
+	case len(p.Skills)+len(p.Agents)+len(p.Plugins)+len(p.Workflows)+len(p.EnvTemplates) == 0:
+		return errors.New("a package must hold something to install")
 	case p.SHA256 != p.contentHash():
 		return errors.New("the content does not match its sha256")
 	}
@@ -126,6 +138,51 @@ func (p MarketPackage) check() error {
 			}
 		}
 	}
+	for _, w := range p.Workflows {
+		if err := w.check(keys); err != nil {
+			return err
+		}
+		keys["w:"+w.Key] = true
+	}
+	for _, t := range p.EnvTemplates {
+		if keys["t:"+t.Key] {
+			return fmt.Errorf("template key %q is repeated", t.Key)
+		}
+		keys["t:"+t.Key] = true
+		if err := t.check(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// check validates a packaged workflow. keys holds the package's own skills ("s:"), agents ("a:") and
+// workflows ("w:") already seen.
+func (w MarketWorkflow) check(keys map[string]bool) error {
+	if m := checkNameDesc(w.Name, w.Description); m != "" || w.Key == "" || keys["w:"+w.Key] {
+		return fmt.Errorf("workflow %q: %s", w.Key, orText(m, "its key is empty or repeated"))
+	}
+	switch {
+	case w.RunAs != "viewer" && w.RunAs != "developer":
+		return fmt.Errorf("workflow %q: run_as is viewer or developer", w.Key)
+	case len(w.Stages) == 0 || len(w.Stages) > maxWFStages:
+		return fmt.Errorf("workflow %q: it needs 1 to %d stages", w.Key, maxWFStages)
+	}
+	for _, st := range w.Stages {
+		if len(st.Name) > maxDefName || len(st.Steps) == 0 || len(st.Steps) > maxWFStepsPerStage {
+			return fmt.Errorf("workflow %q: a stage needs a short name and 1 to %d steps", w.Key, maxWFStepsPerStage)
+		}
+		for _, sp := range st.Steps {
+			switch {
+			case sp.ID != "" || sp.AgentN != 0:
+				return fmt.Errorf("workflow %q: steps carry only an agent key and a task", w.Key)
+			case strings.TrimSpace(sp.Task) == "" || len(sp.Task) > maxWFTask:
+				return fmt.Errorf("workflow %q: each step needs a task of up to %d characters", w.Key, maxWFTask)
+			case !keys["a:"+sp.Agent]:
+				return fmt.Errorf("workflow %q uses agent %q that the package does not hold", w.Key, sp.Agent)
+			}
+		}
+	}
 	return nil
 }
 
@@ -141,7 +198,8 @@ func orText(a, b string) string {
 type marketEntry struct {
 	MarketPackage
 	Problem   string         `json:"problem,omitempty"`
-	Source    string         `json:"source"` // built-in, or local for FORGELINE_MARKET_DIR
+	Source    string         `json:"source"`           // built-in, local (FORGELINE_MARKET_DIR) or git (signed)
+	Signer    string         `json:"signer,omitempty"` // the trusted key that signed it, for git
 	Installed *MarketInstall `json:"installed,omitempty"`
 	Update    bool           `json:"update,omitempty"`
 	// Writes is true when an agent in the package may file change proposals at T1.
@@ -159,11 +217,18 @@ type MarketInstall struct {
 	Skills  map[string]string      `json:"skills"` // package key to skill id
 	Agents  map[string]string      `json:"agents"`
 	Plugins map[string]PluginGrant `json:"plugins,omitempty"`
+	// Workflows maps a package workflow key to the workflow it made; Templates lists packaged
+	// environment template ids.
+	Workflows map[string]string `json:"workflows,omitempty"`
+	Templates []string          `json:"templates,omitempty"`
+	// Source and Signer say where the package came from; an upgrade must come from the same.
+	Source string `json:"source,omitempty"`
+	Signer string `json:"signer,omitempty"`
 }
 
 // marketCatalog reads the shipped manifests. A package that fails its check stays in the list with
 // the reason, so a damaged catalogue is visible, but it cannot be installed.
-func marketCatalog() []marketEntry {
+func (s *Server) marketCatalog(ctx context.Context) []marketEntry {
 	var out []marketEntry
 	seen := map[string]bool{}
 	add := func(fsys fs.FS, dir, source string) {
@@ -207,6 +272,45 @@ func marketCatalog() []marketEntry {
 	if dir := os.Getenv("FORGELINE_MARKET_DIR"); dir != "" {
 		add(os.DirFS(dir), ".", "local")
 	}
+	// Packages from the signed git source come last, so a built-in or local package with the same id
+	// always wins. A verified one that clashes is shown as a duplicate; a damaged one never takes an id
+	// that is in use (its id comes from a file nobody vouched for), and never makes a good one a duplicate.
+	var git []marketEntry
+	all := s.gitEntries(ctx)
+	for _, e := range all {
+		if e.Problem == "" {
+			git = append(git, e)
+		}
+	}
+	for _, e := range all {
+		if e.Problem != "" {
+			git = append(git, e)
+		}
+	}
+	for _, e := range git {
+		if seen[e.ID] {
+			if e.Problem == "" {
+				e.Problem = "another package already has the id " + e.ID
+			}
+			e.ID += " (duplicate from git)"
+		}
+		if e.Problem == "" {
+			seen[e.ID] = true
+		}
+		out = append(out, e)
+	}
+	// A nil list would reach the console as null.
+	for i := range out {
+		if out[i].Skills == nil {
+			out[i].Skills = []MarketSkill{}
+		}
+		if out[i].Agents == nil {
+			out[i].Agents = []MarketAgent{}
+		}
+		if out[i].Tags == nil {
+			out[i].Tags = []string{}
+		}
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Title < out[j].Title })
 	return out
 }
@@ -232,7 +336,7 @@ func (s *Server) handleMarketList(w http.ResponseWriter, r *http.Request) {
 	for _, in := range ins {
 		byID[in.ID] = in
 	}
-	cat := marketCatalog()
+	cat := s.marketCatalog(ctx)
 	for i := range cat {
 		if in, ok := byID[cat[i].ID]; ok {
 			cp := in
@@ -240,7 +344,7 @@ func (s *Server) handleMarketList(w http.ResponseWriter, r *http.Request) {
 			cat[i].Update = cat[i].Problem == "" && cat[i].Version > in.Version
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"packages": cat})
+	writeJSON(w, http.StatusOK, map[string]any{"packages": cat, "git": s.marketGitStatus()})
 }
 
 type marketInstallRequest struct {
@@ -260,7 +364,7 @@ func (s *Server) handleMarketInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	var pkg *marketEntry
-	for _, e := range marketCatalog() {
+	for _, e := range s.marketCatalog(ctx) {
 		if e.ID == req.ID && pkg == nil {
 			e := e
 			pkg = &e
@@ -286,6 +390,12 @@ func (s *Server) handleMarketInstall(w http.ResponseWriter, r *http.Request) {
 	tier := req.Tier
 	if upgrade {
 		tier = cur.Tier // an update never raises it
+		// An install made before sources were recorded (Source empty) came from the binary or the
+		// local directory; it may be updated from there but not taken over by a git package.
+		if (cur.Source == "" && pkg.Source == "git") || (cur.Source != "" && (cur.Source != pkg.Source || cur.Signer != pkg.Signer)) {
+			writeError(w, http.StatusConflict, fmt.Sprintf("this package was installed from %s; an update must come from the same source and signer", sourceLabel(orText(cur.Source, "the built-in or local catalogue"), cur.Signer)))
+			return
+		}
 		if pkg.Version <= cur.Version {
 			writeError(w, http.StatusConflict, fmt.Sprintf("version %d is already installed", cur.Version))
 			return
@@ -322,7 +432,21 @@ func (s *Server) handleMarketInstall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if in.Workflows == nil {
+		in.Workflows = map[string]string{}
+	}
+	for _, wf := range pkg.Workflows {
+		if err := s.installWorkflow(ctx, &in, wf, note, p.Name, now); err != nil {
+			s.internalError(w, "installing "+wf.Name, err)
+			return
+		}
+	}
+	if err := s.installEnvTemplates(ctx, &in, pkg.MarketPackage); err != nil {
+		s.internalError(w, "installing the environment templates", err)
+		return
+	}
 	in.Version, in.Hash, in.By, in.At = pkg.Version, pkg.SHA256, p.Name, now
+	in.Source, in.Signer = pkg.Source, pkg.Signer
 	if err := s.docs.Put(ctx, kindMarketInstall, in.ID, in); err != nil {
 		s.internalError(w, "recording the install", err)
 		return
@@ -336,6 +460,13 @@ func (s *Server) handleMarketInstall(w http.ResponseWriter, r *http.Request) {
 }
 
 // installSkill creates the skill, or adds a version to the one an earlier install made.
+func sourceLabel(source, signer string) string {
+	if signer != "" {
+		return source + ", signed by " + signer
+	}
+	return source
+}
+
 func (s *Server) installSkill(ctx context.Context, in *MarketInstall, m MarketSkill, note, by string, now time.Time) error {
 	if id, ok := in.Skills[m.Key]; ok {
 		sk, err := s.loadSkill(ctx, id)
@@ -434,6 +565,90 @@ func (s *Server) installAgent(ctx context.Context, in *MarketInstall, m MarketAg
 	return nil
 }
 
+// installWorkflow creates the workflow from the package form: agent keys become the ids of the agents
+// this install made, it never has a schedule, and at tier T0 it runs as a viewer at most.
+func (s *Server) installWorkflow(ctx context.Context, in *MarketInstall, m MarketWorkflow, note, by string, now time.Time) error {
+	stages := make([]WFStage, 0, len(m.Stages))
+	for _, st := range m.Stages {
+		steps := make([]WFStep, 0, len(st.Steps))
+		for _, sp := range st.Steps {
+			id, ok := in.Agents[sp.Agent]
+			if !ok {
+				return fmt.Errorf("agent %q is missing", sp.Agent)
+			}
+			steps = append(steps, WFStep{Agent: id, Task: sp.Task})
+		}
+		stages = append(stages, WFStage{Name: st.Name, Gate: st.Gate, Steps: steps})
+	}
+	runAs := m.RunAs
+	if in.Tier != tierReview {
+		runAs = "viewer"
+	}
+	v, msg := s.resolveWorkflow(ctx, wfRequest{Name: m.Name, Description: m.Description, Stages: stages, RunAs: runAs, Note: note})
+	if msg != "" {
+		return errors.New(msg)
+	}
+	v.By, v.At = by, now
+	if id, ok := in.Workflows[m.Key]; ok {
+		wf, err := s.loadWorkflow(ctx, id)
+		if errors.Is(err, docstore.ErrNotFound) {
+			delete(in.Workflows, m.Key)
+		} else if err != nil {
+			return err
+		} else {
+			last := wf.Versions[len(wf.Versions)-1]
+			v.N = last.N + 1
+			v.Hash = v.computeHash(wf.ID)
+			if fmt.Sprint(wfContent(last)) == fmt.Sprint(wfContent(v)) && wf.Name == m.Name && wf.Description == m.Description {
+				return nil
+			}
+			if len(wf.Versions) >= maxVersions {
+				return fmt.Errorf("workflow %q already has %d versions", wf.Name, maxVersions)
+			}
+			wf.Name, wf.Description, wf.Disabled = m.Name, m.Description, false
+			wf.Versions, wf.Current = append(wf.Versions, v), v.N
+			return s.docs.Put(ctx, kindWorkflow, wf.ID, wf)
+		}
+	}
+	id, err := s.newDefID(ctx, kindWorkflow, m.Name)
+	if err != nil {
+		return err
+	}
+	v.N = 1
+	v.Hash = v.computeHash(id)
+	if err := s.docs.Put(ctx, kindWorkflow, id, Workflow{ID: id, Name: m.Name, Description: m.Description, Current: 1, Versions: []WFVersion{v}}); err != nil {
+		return err
+	}
+	in.Workflows[m.Key] = id
+	return nil
+}
+
+// installEnvTemplates makes the package's templates available to environment requests, replacing the
+// earlier version's. Removed ones go away.
+func (s *Server) installEnvTemplates(ctx context.Context, in *MarketInstall, pkg MarketPackage) error {
+	keep := map[string]bool{}
+	for _, t := range pkg.EnvTemplates {
+		id := tplID(pkg.ID, t.Key)
+		keep[id] = true
+		if err := s.docs.Put(ctx, kindEnvTemplate, id, pkgTemplate{ID: id, Package: pkg.ID, Version: pkg.Version, MarketEnvTemplate: t}); err != nil {
+			return err
+		}
+	}
+	for _, id := range in.Templates {
+		if !keep[id] {
+			if err := s.docs.Delete(ctx, kindEnvTemplate, id); err != nil && !errors.Is(err, docstore.ErrNotFound) {
+				return err
+			}
+		}
+	}
+	in.Templates = nil
+	for id := range keep {
+		in.Templates = append(in.Templates, id)
+	}
+	sort.Strings(in.Templates)
+	return nil
+}
+
 // handleMarketUninstall forgets the install and disables the agents it made. The skills and agents
 // stay, with their history, because people may have used them in workflows; they are the
 // administrator's to delete.
@@ -455,6 +670,26 @@ func (s *Server) handleMarketUninstall(w http.ResponseWriter, r *http.Request) {
 		a.Disabled = true
 		if err := s.docs.Put(ctx, kindAIAgent, a.ID, a); err != nil {
 			s.internalError(w, "disabling an agent", err)
+			return
+		}
+	}
+	for _, id := range in.Workflows {
+		wf, err := s.loadWorkflow(ctx, id)
+		if errors.Is(err, docstore.ErrNotFound) {
+			continue
+		} else if err != nil {
+			s.internalError(w, "turning off a workflow", err)
+			return
+		}
+		wf.Disabled = true
+		if err := s.docs.Put(ctx, kindWorkflow, wf.ID, wf); err != nil {
+			s.internalError(w, "turning off a workflow", err)
+			return
+		}
+	}
+	for _, id := range in.Templates {
+		if err := s.docs.Delete(ctx, kindEnvTemplate, id); err != nil && !errors.Is(err, docstore.ErrNotFound) {
+			s.internalError(w, "removing a template", err)
 			return
 		}
 	}
