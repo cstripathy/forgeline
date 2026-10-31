@@ -114,6 +114,21 @@ is an ordinary proposal for a different administrator to approve.
 
 ![A run paused at a gate, with the first stage's findings](47-workflow-run.png)
 
+### Connecting AI tools (MCP)
+
+**Account → API tokens** makes a personal token for an AI tool, with a name, a role (never higher
+than yours) and a lifetime. It is shown once, with the exact command to connect Claude Code
+(`claude mcp add --transport http forgeline <server>/mcp --header "Authorization: Bearer …"`) or a
+stdio client (`FORGELINE_MCP_TOKEN=… forgeline mcp --server <server>`). The tool can then read runs,
+why one failed, pipelines, Guard findings, AWS and Kubernetes views and agents (and, for an
+administrator's token, the audit log), and can file `propose_aws_change` and `propose_cloud_change`
+proposals, which wait for a different administrator like any other. It cannot run raw AWS calls, ask
+agents or use plugins. Every call is in the audit log under the token's name, credential-looking text
+in answers is replaced, and the token stops working when you are demoted, disabled or deleted, when it
+expires, or when you revoke it.
+
+![API tokens on the Account page](60-api-tokens.png)
+
 ### Why a run failed
 
 A failed run shows **What went wrong** above its steps: the step that failed first, its exit code,

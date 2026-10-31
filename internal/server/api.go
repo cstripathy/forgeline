@@ -32,6 +32,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/runs", s.requireRole(authn.Developer, s.handleSubmit))
 	mux.Handle("GET /v1/runs", s.requireRole(authn.Viewer, s.handleList))
 	mux.Handle("GET /v1/runs/{id}", s.requireRole(authn.Viewer, s.handleGet))
+	// Personal API tokens and the MCP endpoint (note 020). /mcp authenticates by itself: only a personal token works there.
+	mux.Handle("GET /v1/tokens", s.requireRole(authn.Viewer, s.handleListTokens))
+	mux.Handle("POST /v1/tokens", s.requireRole(authn.Viewer, s.handleCreateToken))
+	mux.Handle("DELETE /v1/tokens/{id}", s.requireRole(authn.Viewer, s.handleRevokeToken))
+	mux.HandleFunc("POST /mcp", s.handleMCP)
 	mux.Handle("GET /v1/runs/{id}/failure", s.requireRole(authn.Viewer, s.handleRunFailure))
 	mux.Handle("POST /v1/runs/{id}/cancel", s.requireRole(authn.Developer, s.handleCancel))
 	mux.Handle("GET /v1/runs/{id}/steps/{step}/logs", s.requireRole(authn.Viewer, s.handleLogs))

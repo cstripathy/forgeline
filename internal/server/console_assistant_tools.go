@@ -42,6 +42,7 @@ func assistantLookups() []lookupTool {
 		{"list_runs", `{"pipeline":"optional name","status":"optional: failed|succeeded|running|queued","limit":"optional, up to 30"} recent runs`, authn.Viewer, (*Server).lookupListRuns},
 		{"get_run", `{"id":"run id"} one run: status, pipeline file, step states`, authn.Viewer, (*Server).lookupGetRun},
 		{"get_step_log", `{"run_id":"...","step_id":"..."} the end of one step's output`, authn.Viewer, (*Server).lookupStepLog},
+		{"run_failure", `{"id":"run id"} why a failed run failed: the step that failed first, likely causes, steps that did not run and the end of its output`, authn.Viewer, (*Server).lookupRunFailure},
 		{"list_pipelines", `{} saved pipelines with their ids`, authn.Viewer, (*Server).lookupListPipelines},
 		{"get_pipeline", `{"id":"pipeline id"} one saved pipeline file`, authn.Viewer, (*Server).lookupGetPipeline},
 		{"aws_accounts", `{} the AWS accounts that are connected, with their ids`, authn.Viewer, (*Server).lookupAWSAccounts},

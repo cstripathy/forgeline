@@ -18,6 +18,10 @@ Role = the minimum role. A test (`internal/server/apidocs_test.go`) fails if a r
 | `POST /v1/auth/login` | public | Body: `username`, `password`. Sets the session cookie. Throttled. |
 | `POST /v1/auth/logout` | viewer | Ends the session. |
 | `POST /v1/me/password` | viewer | Body: `current`, `new` (at least 12 characters). |
+| `GET /v1/tokens` | viewer | Your personal API tokens (never the secrets); `?all=1` for everyone's, administrators only. |
+| `POST /v1/tokens` | viewer | Body: `name`, `role` (at most your own; default yours), `days` (1 to 365, default 90). Needs a browser session, not a token. Returns the secret once. At most 10 each. |
+| `DELETE /v1/tokens/{id}` | viewer | Revoke your token (an administrator can revoke any). |
+| `POST /mcp` | public | The MCP endpoint (it checks the caller itself) (streamable HTTP, one JSON-RPC message per request). Only a personal API token works here (not the server token, not a session), so it answers 401 to anything else. See note 020. |
 
 ## Runs
 

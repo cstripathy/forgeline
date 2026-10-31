@@ -72,7 +72,9 @@ type Server struct {
 	cfg Config
 	log *slog.Logger
 
-	failures failureCache
+	failures  failureCache
+	apiTokens apiTokenState
+	mcp       mcpState
 
 	wake chan struct{}
 

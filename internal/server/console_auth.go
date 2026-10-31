@@ -667,6 +667,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.dropSessions(r.Context(), u.ID)
+	s.dropTokensOf(r.Context(), u.ID)
 	s.auditReq(r, "user.delete", "user/"+u.ID, "", true)
 	w.WriteHeader(http.StatusNoContent)
 }
