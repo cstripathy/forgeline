@@ -103,6 +103,7 @@ type Server struct {
 	guard    guardEngine
 	k8s      k8sEngine
 	envs     envEngine
+	plugins  pluginRunner // container runner for plugins; replaced in tests
 
 	ghApp     ghAppRegistry // GitHub App setups waiting for GitHub
 	ghTokens  sync.Map      // "appID/installationID" -> *ghTokenCache

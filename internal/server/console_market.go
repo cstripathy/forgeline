@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -56,15 +58,16 @@ type MarketAgent struct {
 
 // MarketPackage is one entry in the catalogue.
 type MarketPackage struct {
-	ID          string        `json:"id"`
-	Version     int           `json:"version"`
-	Title       string        `json:"title"`
-	Description string        `json:"description"`
-	Publisher   string        `json:"publisher"`
-	Tags        []string      `json:"tags"`
-	Skills      []MarketSkill `json:"skills"`
-	Agents      []MarketAgent `json:"agents"`
-	SHA256      string        `json:"sha256"`
+	ID          string         `json:"id"`
+	Version     int            `json:"version"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Publisher   string         `json:"publisher"`
+	Tags        []string       `json:"tags"`
+	Skills      []MarketSkill  `json:"skills"`
+	Agents      []MarketAgent  `json:"agents"`
+	Plugins     []MarketPlugin `json:"plugins,omitempty"`
+	SHA256      string         `json:"sha256"`
 }
 
 // contentHash is the fingerprint of everything but the hash field itself.
@@ -84,7 +87,7 @@ func (p MarketPackage) check() error {
 		return errors.New("the version must be 1 or more")
 	case p.Title == "" || p.Publisher == "":
 		return errors.New("a package needs a title and a publisher")
-	case len(p.Skills)+len(p.Agents) == 0:
+	case len(p.Skills)+len(p.Agents)+len(p.Plugins) == 0:
 		return errors.New("a package must hold at least one skill or agent")
 	case p.SHA256 != p.contentHash():
 		return errors.New("the content does not match its sha256")
@@ -96,6 +99,10 @@ func (p MarketPackage) check() error {
 			return fmt.Errorf("skill %q: %s", sk.Key, orText(m, "its key is empty or repeated"))
 		}
 		keys["s:"+sk.Key] = true
+	}
+	extra, err := p.checkPlugins()
+	if err != nil {
+		return err
 	}
 	for _, a := range p.Agents {
 		if m := checkNameDesc(a.Name, a.Description); m != "" || a.Key == "" || keys["a:"+a.Key] {
@@ -110,7 +117,7 @@ func (p MarketPackage) check() error {
 		case !validTier(a.Tier):
 			return fmt.Errorf("agent %q: unknown tier %q", a.Key, a.Tier)
 		}
-		if err := validTools(a.Tools, a.Tier); err != nil {
+		if err := validTools(a.Tools, a.Tier, extra...); err != nil {
 			return fmt.Errorf("agent %q: %w", a.Key, err)
 		}
 		for _, k := range a.Skills {
@@ -134,6 +141,7 @@ func orText(a, b string) string {
 type marketEntry struct {
 	MarketPackage
 	Problem   string         `json:"problem,omitempty"`
+	Source    string         `json:"source"` // built-in, or local for FORGELINE_MARKET_DIR
 	Installed *MarketInstall `json:"installed,omitempty"`
 	Update    bool           `json:"update,omitempty"`
 	// Writes is true when an agent in the package may file change proposals at T1.
@@ -142,42 +150,62 @@ type marketEntry struct {
 
 // MarketInstall records what an install created, so an upgrade and an uninstall touch only that.
 type MarketInstall struct {
-	ID      string            `json:"id"`
-	Version int               `json:"version"`
-	Hash    string            `json:"hash"`
-	Tier    string            `json:"tier"` // the most any agent from this package may be
-	By      string            `json:"by"`
-	At      time.Time         `json:"at"`
-	Skills  map[string]string `json:"skills"` // package key to skill id
-	Agents  map[string]string `json:"agents"`
+	ID      string                 `json:"id"`
+	Version int                    `json:"version"`
+	Hash    string                 `json:"hash"`
+	Tier    string                 `json:"tier"` // the most any agent from this package may be
+	By      string                 `json:"by"`
+	At      time.Time              `json:"at"`
+	Skills  map[string]string      `json:"skills"` // package key to skill id
+	Agents  map[string]string      `json:"agents"`
+	Plugins map[string]PluginGrant `json:"plugins,omitempty"`
 }
 
 // marketCatalog reads the shipped manifests. A package that fails its check stays in the list with
 // the reason, so a damaged catalogue is visible, but it cannot be installed.
 func marketCatalog() []marketEntry {
-	files, _ := fs.ReadDir(marketFiles, "market")
 	var out []marketEntry
-	for _, f := range files {
-		b, err := fs.ReadFile(marketFiles, "market/"+f.Name())
-		var e marketEntry
-		if err == nil {
-			err = json.Unmarshal(b, &e.MarketPackage)
-		}
-		if err == nil {
-			err = e.MarketPackage.check()
-		}
-		if err != nil {
-			e.Problem = err.Error()
-			if e.ID == "" {
-				e.ID = strings.TrimSuffix(f.Name(), ".json")
+	seen := map[string]bool{}
+	add := func(fsys fs.FS, dir, source string) {
+		files, _ := fs.ReadDir(fsys, dir)
+		for _, f := range files {
+			if f.IsDir() || !strings.HasSuffix(f.Name(), ".json") {
+				continue
 			}
-		}
-		for _, a := range e.Agents {
-			if a.Tier == tierReview {
-				e.Writes = true
+			b, err := fs.ReadFile(fsys, path.Join(dir, f.Name()))
+			var e marketEntry
+			if err == nil {
+				err = json.Unmarshal(b, &e.MarketPackage)
 			}
+			if err == nil {
+				err = e.MarketPackage.check()
+			}
+			if err == nil && seen[e.ID] {
+				// Shown, but under another id so it can never stand in for the first one.
+				err = errors.New("another package already has the id " + e.ID)
+				e.ID += " (duplicate from " + source + ")"
+			}
+			if err != nil {
+				e.Problem = err.Error()
+				if e.ID == "" {
+					e.ID = strings.TrimSuffix(f.Name(), ".json")
+				}
+			}
+			seen[e.ID] = true
+			e.Source = source
+			for _, a := range e.Agents {
+				if a.Tier == tierReview {
+					e.Writes = true
+				}
+			}
+			out = append(out, e)
 		}
-		out = append(out, e)
+	}
+	add(marketFiles, "market", "built-in")
+	// A directory of manifests set by whoever runs the server (never by the console). They are
+	// checked exactly like the built-in ones, hash included.
+	if dir := os.Getenv("FORGELINE_MARKET_DIR"); dir != "" {
+		add(os.DirFS(dir), ".", "local")
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Title < out[j].Title })
 	return out
@@ -219,6 +247,8 @@ type marketInstallRequest struct {
 	ID   string `json:"id"`
 	Hash string `json:"hash"` // the sha256 the administrator reviewed
 	Tier string `json:"tier"` // T0 or T1; ignored on an upgrade
+	// Grants are what the administrator allows each plugin, by plugin key. Nothing is on by default.
+	Grants map[string]PluginGrantRequest `json:"grants"`
 }
 
 var tierRank = map[string]int{tierAdvisory: 0, tierReview: 1}
@@ -231,7 +261,7 @@ func (s *Server) handleMarketInstall(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var pkg *marketEntry
 	for _, e := range marketCatalog() {
-		if e.ID == req.ID {
+		if e.ID == req.ID && pkg == nil {
 			e := e
 			pkg = &e
 		}
@@ -273,6 +303,12 @@ func (s *Server) handleMarketInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	p := principalFrom(ctx)
 	now := time.Now().UTC()
+	plugins, status, msg := s.approvePlugins(ctx, pkg.MarketPackage, in.Plugins, req.Grants, p.Name, now)
+	if msg != "" {
+		writeError(w, status, msg)
+		return
+	}
+	in.Plugins = plugins
 	note := fmt.Sprintf("Marketplace: %s v%d sha256:%s", pkg.ID, pkg.Version, pkg.SHA256[:12])
 	for _, sk := range pkg.Skills {
 		if err := s.installSkill(ctx, &in, sk, note, p.Name, now); err != nil {

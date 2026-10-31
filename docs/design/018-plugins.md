@@ -1,6 +1,6 @@
 # 018 Plugins: MCP servers in containers
 
-Status: **step 1 built** (`internal/plugin`, the runner; not yet used by the console). Steps 2 to 4 are not built. Follows note 017 slice 7 (marketplace). A plugin gives the assistant
+Status: **built** (steps 1 to 4). Pictures: [54](../console/54-marketplace-plugin.png). Follows note 017 slice 7 (marketplace). A plugin gives the assistant
 and agents new read-only lookups from a third party's MCP server. It is the one place Forgeline would
 run code it did not write, so the rules here are strict and the first version is small.
 
@@ -50,14 +50,38 @@ is on by default.
 1. (built) `internal/plugin`: build the `docker run` argv from a fixed template, run one call, enforce the
    timeout and output cap. Tested with a fake `docker` script that records its argv, so the flags are
    asserted exactly; one real run with a tiny image behind a skipped-if-no-Docker test.
-2. Manifest and package kind `plugin`; the install flow and permissions screen; grants on the install
+2. (built) Manifest and package kind `plugin`; the install flow and permissions screen; grants on the install
    record.
-3. Lookups `plugin_<id>_<tool>` registered from installed plugins, with schema checks, agent
+3. (built) Lookups `plugin_<id>_<tool>` registered from installed plugins, with schema checks, agent
    allowlisting, role checks, output wrapping.
-4. A first-party sample plugin (a read-only example) so the whole path is exercised end to end.
+4. (built, as a dev fixture) A sample plugin (a read-only example) so the whole path is exercised end to end.
 
 ## Not decided
 
 - Egress allowlists by host (needs a proxy container).
 - Long-lived plugin processes for slow-starting servers.
 - Signed manifests from third parties (the git source in note 017).
+
+## What was built, and how it was checked
+
+- A package may carry `plugins`: image, whether it wants network, the environment variables it
+  wants, and each tool with an argument schema. The package sha256 covers all of it.
+- Plugins are off until an administrator turns them on (needs Docker to answer). Install shows the
+  image, tools and asks, and grants nothing by default: network and each secret are separate
+  choices. The image is pulled by digest (or present locally by id) and started once to check it
+  really offers the listed tools.
+- An update that changes the image, the network ask or the secret ask needs a fresh grant (409
+  otherwise); an update that changes none of them keeps the old grant.
+- Tools appear as lookups `plugin_<package>_<plugin>_<tool>`, developer and up, usable by an agent
+  only when it lists them. Arguments are checked against the schema (unknown, missing, wrongly typed
+  or too long arguments are refused before any container starts). Output is returned as untrusted data.
+- Tried for real: `scripts/dev/sample-plugin` is a static Go MCP server in a `FROM scratch` image.
+  In real Docker it ran as uid 65534 with a read-only root, no network, and the granted secret, and a
+  real `claude` agent used both of its tools through the console. The secret value appears in no
+  audit entry and no log, and no container was left behind.
+- `FORGELINE_MARKET_DIR` adds a directory of manifests as another source (checked the same way,
+  hash included). It is set by whoever runs the server, never by the console. A duplicate id is shown
+  as a damaged "duplicate" entry and cannot stand in for the first package.
+
+Not built: egress allowlists, long-lived plugins, signed third-party manifests, a published plugin
+image (the sample is built locally and referenced by its image id).

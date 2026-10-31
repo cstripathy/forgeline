@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forgelinehq/forgeline/internal/authn"
 	"github.com/forgelinehq/forgeline/internal/docstore"
 )
 
@@ -144,8 +145,11 @@ func (sc *agentScope) allows(tool string) bool { return sc == nil || sc.tools[to
 
 // validTools checks an agent's tool list against the real lookups. ask_agent is never allowed (no
 // agents calling agents), and only a review-tier agent may file proposals.
-func validTools(tools []string, tier string) error {
+func validTools(tools []string, tier string, extra ...string) error {
 	known := map[string]bool{}
+	for _, n := range extra {
+		known[n] = true // plugin tools, which are not in the fixed list
+	}
 	for _, t := range assistantLookups() {
 		known[t.name] = true
 	}
@@ -476,7 +480,7 @@ func (s *Server) resolveAgent(ctx context.Context, req agentRequest) (AgentVersi
 	case !validTier(req.Tier):
 		return AgentVersion{}, "the tier must be T0 (advisory) or T1 (may file proposals)"
 	}
-	if err := validTools(req.Tools, req.Tier); err != nil {
+	if err := validTools(req.Tools, req.Tier, s.pluginToolNames(ctx)...); err != nil {
 		return AgentVersion{}, err.Error()
 	}
 	pins := []SkillPin{}
@@ -848,6 +852,9 @@ func (s *Server) handleListAITools(w http.ResponseWriter, r *http.Request) {
 			x.Needs = "mcp"
 		}
 		out = append(out, x)
+	}
+	for _, t := range s.pluginTools(r.Context()) {
+		out = append(out, tool{Name: t.name, Help: t.help, Min: string(authn.Developer), Needs: "plugins"})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tools": out})
 }

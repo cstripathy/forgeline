@@ -1,5 +1,5 @@
 import { h, icon, mount, clear, pageHeader, emptyState, spinner, errorBox, notice, toast, modal, confirmDialog } from '../lib/dom.js';
-import { get, post, del, atLeast } from '../lib/api.js';
+import { get, post, put, del, atLeast } from '../lib/api.js';
 import { session } from '../app.js';
 
 // Marketplace: packages of skills and agents. Each is shown with what it can do before anyone
@@ -10,10 +10,12 @@ const tierText = (t) => t === 'T1' ? 'T1 · may file change proposals (a person 
 export async function marketplacePage() {
   const admin = atLeast(session.role, 'admin');
   const el = h('div', {});
-  let packages = [], tag = '', q = '';
+  let packages = [], tag = '', q = '', plugins = { enabled: false, plugins: [] }, secretNames = [];
 
   async function load() {
-    try { packages = (await get('/v1/market/packages')).packages; } catch (e) { return mount(el, errorBox(e.message)); }
+    try {
+      [packages, plugins, secretNames] = await Promise.all([get('/v1/market/packages').then(r => r.packages), get('/v1/plugins'), get('/v1/secrets').then(r => r.secrets.filter(x => x.source === 'vault').map(x => x.name)).catch(() => [])]);
+    } catch (e) { return mount(el, errorBox(e.message)); }
     draw();
   }
 
@@ -22,7 +24,9 @@ export async function marketplacePage() {
     const shown = packages.filter(p => (!tag || (p.tags || []).includes(tag)) && (!q || (p.title + ' ' + p.description).toLowerCase().includes(q.toLowerCase())));
     const search = h('input', { class: 'input w-56', id: 'market-search', type: 'search', placeholder: 'Search packages', 'aria-label': 'Search packages', value: q,
       oninput: (e) => { q = e.target.value; const pos = e.target.selectionStart; draw(); const n = document.querySelector('#market-search'); n.focus(); n.setSelectionRange(pos, pos); } });
-    mount(el, pageHeader('Marketplace', 'Ready-made skills and agents. You see what each one can do before it is installed, and an install is pinned to the fingerprint you reviewed.', search),
+    mount(el, pageHeader('Marketplace', 'Ready-made skills and agents. You see what each one can do before it is installed, and an install is pinned to the fingerprint you reviewed.', search,
+        admin && h('label', { class: 'flex items-center gap-2 text-sm', title: 'Plugins run third-party tools in locked-down containers. Needs Docker.' }, h('input', { type: 'checkbox', id: 'plugins-switch', checked: plugins.enabled,
+          onchange: async (e) => { try { await put('/v1/plugins/settings', { enabled: e.target.checked }); toast(e.target.checked ? 'Plugins are on' : 'Plugins are off', 'ok'); } catch (err) { e.target.checked = !e.target.checked; toast(err.message, 'error'); } load(); } }), 'Plugins')),
       h('div', { class: 'mb-4 flex flex-wrap gap-2' }, [['', 'All'], ...tags.map(t => [t, t])].map(([v, l]) => h('button', { type: 'button', 'data-tag': v, 'aria-pressed': String(tag === v),
         class: 'rounded-full border px-3 py-1 text-sm ' + (tag === v ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950/40 dark:text-brand-200' : 'border-slate-200 muted hover:border-brand-400 dark:border-slate-800'),
         onclick: () => { tag = v; draw(); } }, l))),
@@ -35,7 +39,7 @@ export async function marketplacePage() {
       h('div', { class: 'flex items-start justify-between gap-2' }, h('h3', { class: 'font-semibold' }, p.title),
         p.problem ? h('span', { class: 'pill-bad' }, 'damaged') : p.update ? h('span', { class: 'pill-wait' }, 'update') : inst ? h('span', { class: 'pill-ok' }, 'installed') : null),
       h('p', { class: 'muted mt-1 flex-1 text-sm' }, p.description),
-      h('div', { class: 'muted mt-3 text-xs' }, `${p.agents.length} agent${p.agents.length === 1 ? '' : 's'} · ${p.skills.length} skill${p.skills.length === 1 ? '' : 's'} · v${p.version} · ${p.publisher}`),
+      h('div', { class: 'muted mt-3 text-xs' }, `${p.agents.length} agent${p.agents.length === 1 ? '' : 's'} · ${p.skills.length} skill${p.skills.length === 1 ? '' : 's'}${(p.plugins || []).length ? ` · ${p.plugins.length} plugin${p.plugins.length === 1 ? '' : 's'}` : ''} · v${p.version} · ${p.publisher}`),
       h('div', { class: 'mt-3 flex justify-end' }, h('button', { class: 'btn-secondary btn-sm', type: 'button', 'data-open': p.id, onclick: () => detail(p) }, 'Review')));
   }
 
@@ -44,6 +48,25 @@ export async function marketplacePage() {
       const inst = p.installed;
       const tier = h('select', { id: 'install-tier', class: 'input w-auto', disabled: !!inst }, h('option', { value: 'T0' }, 'T0 · advise only'), p.writes ? h('option', { value: 'T1' }, 'T1 · may file proposals') : null);
       const err = h('div', { class: 'hidden' });
+      const grants = {};
+      const pluginBlock = (pl) => {
+        const g = grants[pl.key] = { network: false, secrets: {} };
+        const prev = inst?.plugins?.[pl.key];
+        const changed = !!prev && (prev.image !== pl.image || prev.wants_network !== !!pl.network || JSON.stringify(prev.wants_secrets || []) !== JSON.stringify([...(pl.secrets || [])].sort()));
+        const old = changed ? null : prev;
+        return h('div', { class: 'mb-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800', 'data-plugin': pl.key },
+          h('div', { class: 'font-medium' }, pl.name), h('div', { class: 'muted text-sm' }, pl.description),
+          h('div', { class: 'mt-2 break-all text-xs' }, h('span', { class: 'muted' }, 'Image: '), h('code', {}, pl.image)),
+          h('div', { class: 'mt-1 text-xs' }, h('span', { class: 'muted' }, 'Tools: '), pl.tools.map(t => h('code', { class: 'mr-1.5', title: t.description }, t.name))),
+          h('div', { class: 'mt-1 text-xs muted' }, 'Runs in a container for each call: read-only, no extra privileges, no network unless you allow it. What it returns is treated as data.'),
+          old && admin ? h('div', { class: 'mt-2 text-xs muted' }, `Approved earlier: network ${old.network ? 'allowed' : 'off'}${Object.keys(old.secrets || {}).length ? ', secrets ' + Object.keys(old.secrets).join(', ') : ''}. An update keeps this unless the plugin asks for something different.`) : null,
+          changed ? notice('warn', 'This update asks for something different from what you approved (image, network or secrets). Grant it again below.') : null,
+          admin && !old ? h('div', { class: 'mt-2 space-y-2 text-sm' },
+            pl.network ? h('label', { class: 'flex items-center gap-2' }, h('input', { type: 'checkbox', 'data-grant-network': pl.key, onchange: (e) => { g.network = e.target.checked; } }), 'Allow it to use the network (it asks for this)') : h('div', { class: 'muted text-xs' }, 'It does not ask for network access.'),
+            (pl.secrets || []).map(env => h('label', { class: 'flex flex-wrap items-center gap-2' }, h('code', { class: 'text-xs' }, env), h('span', { class: 'muted' }, 'give it'),
+              h('select', { class: 'input w-auto', 'data-grant-secret': env, onchange: (e) => { if (e.target.value) g.secrets[env] = e.target.value; else delete g.secrets[env]; } },
+                h('option', { value: '' }, 'nothing'), secretNames.map(n => h('option', { value: n }, n)))))) : null);
+      };
       const act = async (fn, done) => {
         err.classList.add('hidden');
         try { await fn(); toast(done, 'ok'); close(); load(); } catch (e) { mount(err, errorBox(e.message)); err.classList.remove('hidden'); }
@@ -58,6 +81,7 @@ export async function marketplacePage() {
             h('div', { class: 'font-medium' }, a.name), h('div', { class: 'muted text-sm' }, a.description),
             h('div', { class: 'mt-2 text-xs' }, h('span', { class: 'muted' }, 'Allowed to read: '), a.tools.map(t => h('code', { class: 'mr-1.5' }, t))),
             h('div', { class: 'mt-1 text-xs muted' }, tierText(a.tier))))),
+        (p.plugins || []).length ? h('div', {}, h('div', { class: 'h-section mb-2' }, 'Plugins it adds'), (p.plugins || []).map(pluginBlock), plugins.enabled ? null : notice('warn', 'Plugins are turned off. An administrator turns them on at the top of this page; it needs Docker.')) : null,
         p.skills.length ? h('div', {}, h('div', { class: 'h-section mb-2' }, 'Skills it adds'), p.skills.map(s => h('details', { class: 'mb-2' }, h('summary', { class: 'cursor-pointer text-sm font-medium' }, s.name),
           h('pre', { class: 'mt-1 whitespace-pre-wrap rounded-lg border border-slate-200 p-3 text-xs dark:border-slate-800' }, s.body)))) : null,
         notice('info', 'Nothing here can change your cloud by itself. At most it can propose a change, and a different administrator approves it.'),
@@ -67,7 +91,7 @@ export async function marketplacePage() {
               if (await confirmDialog({ title: 'Uninstall ' + p.title, body: 'Its agents are disabled. The skills and agents stay, with their history, so you can delete them yourself.', confirmLabel: 'Uninstall' }))
                 act(() => del('/v1/market/install/' + p.id), 'Uninstalled');
             } }, 'Uninstall') : h('label', { class: 'flex items-center gap-2 text-sm' }, h('span', { class: 'muted' }, 'Allow up to'), tier),
-            !inst || p.update ? h('button', { class: 'btn-primary', type: 'button', id: 'install', onclick: () => act(() => post('/v1/market/install', { id: p.id, hash: p.sha256, tier: tier.value }), inst ? 'Updated' : 'Installed') }, inst ? 'Update to v' + p.version : 'Install') : null),
+            !inst || p.update ? h('button', { class: 'btn-primary', type: 'button', id: 'install', onclick: () => act(() => post('/v1/market/install', { id: p.id, hash: p.sha256, tier: tier.value, grants }), inst ? 'Updated' : 'Installed') }, inst ? 'Update to v' + p.version : 'Install') : null),
           inst ? h('p', { class: 'muted text-xs' }, `Installed by ${inst.by}. Tier stays at ${inst.tier}; an update cannot raise it.`) : null) : null);
     }, { wide: true });
   }

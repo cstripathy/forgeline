@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -201,4 +203,39 @@ func TestDamagedPackageIsListedButCannotBeInstalled(t *testing.T) {
 
 func overlay(base interface{}, name string, data []byte) fstest.MapFS {
 	return fstest.MapFS{name: &fstest.MapFile{Data: data}}
+}
+
+func TestLocalDirectoryIsAnotherSourceWithTheSameChecks(t *testing.T) {
+	dir := t.TempDir()
+	good := samplePkg(1, "Steps.")
+	good.ID = "local-good"
+	good.SHA256 = good.contentHash()
+	bad := samplePkg(1, "Steps.")
+	bad.ID, bad.SHA256 = "local-bad", "deadbeef"
+	dup := samplePkg(1, "Other.")
+	dup.ID = "sample"
+	dup.SHA256 = dup.contentHash()
+	for name, p := range map[string]MarketPackage{"good": good, "bad": bad, "dup": dup} {
+		b, _ := json.Marshal(p)
+		os.WriteFile(filepath.Join(dir, name+".json"), b, 0o600)
+	}
+	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("ignored"), 0o600)
+	publish(t, samplePkg(1, "Steps."))
+	t.Setenv("FORGELINE_MARKET_DIR", dir)
+	got := map[string]marketEntry{}
+	for _, e := range marketCatalog() {
+		got[e.ID] = e
+	}
+	if g := got["local-good"]; g.Source != "local" || g.Problem != "" {
+		t.Errorf("good = %+v", g)
+	}
+	if got["local-bad"].Problem == "" {
+		t.Error("a local package with a wrong hash must be damaged")
+	}
+	if e := got["sample"]; e.Source != "built-in" || e.Problem != "" {
+		t.Errorf("a local package took over a built-in id: %+v", e)
+	}
+	if len(got) != 4 || got["sample (duplicate from local)"].Problem == "" {
+		t.Errorf("entries = %v", got)
+	}
 }
