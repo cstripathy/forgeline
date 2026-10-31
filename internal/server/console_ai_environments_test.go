@@ -124,7 +124,9 @@ func TestAssistantEnvironmentRequestRules(t *testing.T) {
 	}
 	// Fields the tool does not have are ignored: there is nothing to say "start it yourself" with.
 	c.setPolicy(selfService("qa-sandbox"))
-	if _, err := c.lookupAs("dev2", authn.Developer, nil, "request_environment", with("auto_approve", true)); err != nil {
+	extra := with("auto_approve", true)
+	extra["name"] = "Extra field ignored"
+	if _, err := c.lookupAs("dev2", authn.Developer, nil, "request_environment", extra); err != nil {
 		t.Fatal(err)
 	}
 	var all struct{ Environments []Environment }
