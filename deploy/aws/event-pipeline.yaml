@@ -17,7 +17,9 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       SqsManagedSseEnabled: true
-      MessageRetentionPeriod: 86400
+      # A message keeps the time it first entered the source queue, so the dead-letter queue must keep
+      # messages longer than the source queue does or failures vanish before anyone looks.
+      MessageRetentionPeriod: 345600
       Tags:
         - { Key: forgeline:environment, Value: event-pipeline }
         - { Key: Owner, Value: !Ref Owner }

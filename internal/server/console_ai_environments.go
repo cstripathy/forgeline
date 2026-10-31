@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -15,6 +16,64 @@ import (
 // person has looked at it yet), and a scheduled workflow, which has no person, cannot make one.
 
 const requestEnvTool = "request_environment"
+
+// flexInt reads a number the model may have written as a number or a string.
+type flexInt int
+
+func (f *flexInt) UnmarshalJSON(b []byte) error {
+	var v any
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	switch x := v.(type) {
+	case float64:
+		if x != float64(int(x)) || x < 0 || x > 1e6 {
+			return errors.New("ttl_hours must be a whole number of hours")
+		}
+		*f = flexInt(x)
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(x))
+		if err != nil || n < 0 || n > 1e6 {
+			return errors.New("ttl_hours must be a whole number of hours")
+		}
+		*f = flexInt(n)
+	case nil:
+	default:
+		return errors.New("ttl_hours must be a whole number of hours")
+	}
+	return nil
+}
+
+// flexString reads a setting the model may have written as a string, a number or a boolean.
+type flexString string
+
+func (f *flexString) UnmarshalJSON(b []byte) error {
+	var v any
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	switch x := v.(type) {
+	case string:
+		*f = flexString(x)
+	case float64, bool:
+		*f = flexString(strings.TrimSpace(string(b)))
+	default:
+		return errors.New("each setting must be a string or a number")
+	}
+	return nil
+}
+
+// isPerson says whether name is an enabled account. Only a person can own an environment: a
+// scheduled workflow or a policy has a name that is not an account.
+func (s *Server) isPerson(ctx context.Context, name string) bool {
+	var u User
+	return name != "" && s.docs.Get(ctx, kindUser, strings.ToLower(name), &u) == nil && !u.Disabled
+}
+
+// usualTTL is the lifetime to offer when none is given: the template's usual one, within the policy.
+func usualTTL(spec envSpec, pol EnvPolicy) int {
+	return min(spec.DefaultTTL, pol.MaxLifetimeHours)
+}
 
 func (s *Server) lookupEnvTemplates(ctx context.Context, _ json.RawMessage) (string, error) {
 	pol := s.loadEnvPolicy(ctx)
@@ -32,7 +91,7 @@ func (s *Server) lookupEnvTemplates(ctx context.Context, _ json.RawMessage) (str
 		}
 		spec := envSpecs[id]
 		defaults, _ := checkParams(tpl, map[string]string{"VpcId": "vpc-00000000", "SubnetId": "subnet-00000000", "Owner": "x", "ExpiresAt": "2026-01-01T00:00:00Z"})
-		fmt.Fprintf(&b, "- %s: %s. %s About $%.2f a month while it lives; usual lifetime %d hours.", id, spec.Kind, tpl.Description, spec.Monthly(defaults), spec.DefaultTTL)
+		fmt.Fprintf(&b, "- %s: %s. %s About $%.2f a month while it lives; usual lifetime %d hours.", id, spec.Kind, tpl.Description, spec.Monthly(defaults), usualTTL(spec, pol))
 		var opts []string
 		for _, p := range tpl.Parameters {
 			if contains(spec.UserParams, p.Name) {
@@ -56,27 +115,31 @@ func (s *Server) lookupEnvTemplates(ctx context.Context, _ json.RawMessage) (str
 
 func (s *Server) lookupRequestEnv(ctx context.Context, raw json.RawMessage) (string, error) {
 	var a struct {
-		Template string            `json:"template"`
-		Name     string            `json:"name"`
-		Purpose  string            `json:"purpose"`
-		TTLHours int               `json:"ttl_hours"`
-		Params   map[string]string `json:"params"`
+		Template string                `json:"template"`
+		Name     string                `json:"name"`
+		Purpose  string                `json:"purpose"`
+		TTLHours flexInt               `json:"ttl_hours"`
+		Params   map[string]flexString `json:"params"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return "", err
 	}
 	p := principalFrom(ctx)
-	if strings.HasPrefix(p.Name, "workflow:") || strings.HasPrefix(p.Name, "policy:") {
-		return "", errors.New("a scheduled workflow has no person to own an environment; ask for it in the console")
+	if !s.isPerson(ctx, p.Name) {
+		return "", errors.New("only a person can own an environment, and a scheduled workflow has none; ask for it in the console")
 	}
 	spec, ok := envSpecs[a.Template]
 	if !ok {
 		return "", errors.New("choose one of the templates environment_templates lists")
 	}
 	if a.TTLHours == 0 {
-		a.TTLHours = spec.DefaultTTL
+		a.TTLHours = flexInt(usualTTL(spec, s.loadEnvPolicy(ctx)))
 	}
-	e, herr := s.requestEnv(ctx, p, "", envRequest{Template: a.Template, Name: a.Name, Purpose: a.Purpose, TTLHours: a.TTLHours, Params: a.Params}, true)
+	params := map[string]string{}
+	for k, v := range a.Params {
+		params[k] = string(v)
+	}
+	e, herr := s.requestEnv(ctx, p, "", envRequest{Template: a.Template, Name: a.Name, Purpose: a.Purpose, TTLHours: int(a.TTLHours), Params: params}, true)
 	if herr != nil {
 		return "", errors.New(herr.msg)
 	}

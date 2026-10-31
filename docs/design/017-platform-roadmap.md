@@ -117,9 +117,8 @@ creation (`policy:cleanup`) and when the owner or an administrator asks; each is
 change and audited. An environment can only delete its own recorded stack. Extension is capped by the
 longest life and, for non-administrators, a count. The engine reads state every 5 seconds and every
 step is recorded, so a restart carries on. Templates are validated against CloudFormation and tested
-against a stand-in; the real-account run is the next check. Not built: more templates, per-person
-budgets across environments, a shared "team" owner, scheduled stop/start to save money, and requesting
-an environment from the assistant.
+against a stand-in; the real-account run is the next check. Not built: per-person
+budgets across environments, a shared "team" owner, and scheduled stop/start to save money.
 
 Later: the assistant, review-tier agents and workflow steps can request an environment
 (`environment_templates`, `request_environment`). It is the person's own request with `ViaAI` set, which

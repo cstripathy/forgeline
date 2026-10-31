@@ -178,7 +178,8 @@ you with `environment_templates` (read-only: the templates, prices and settings)
 person has read it yet. A different administrator approves it as any cloud change, and the request's reason
 says the assistant asked. The per-person limit counts it. An agent needs `request_environment` in its tool
 list and must be review-tier (T1); a workflow that runs on a schedule has no person to own an
-environment and can't ask. The assistant's reply and the agent's chat link to Environments.
+environment and can't ask. The assistant's reply and the agent's chat link to Environments, a workflow run lists the environments its
+steps asked for, and the Environments page marks them "asked by the assistant".
 
 ![An environment the assistant asked for, after approval](60-environment-asked-by-assistant.png)
 

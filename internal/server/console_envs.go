@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	awsdeploy "github.com/forgelinehq/forgeline/deploy/aws"
 	"github.com/forgelinehq/forgeline/internal/authn"
@@ -135,9 +136,12 @@ var envSpecs = map[string]envSpec{
 	"workflow-sandbox": {Kind: "Workflow sandbox", DefaultTTL: 24, Monthly: func(map[string]string) float64 { return 0.5 }},
 }
 
-var ownerExpiryParams = []CatalogParam{
-	{Name: "Owner", Label: "Owner", Required: true, pattern: regexp.MustCompile(`^[A-Za-z0-9_.@ -]{1,64}$`)},
-	{Name: "ExpiresAt", Label: "Expires at (UTC)", Required: true, pattern: regexp.MustCompile(`^[0-9TZ:-]{20}$`)},
+// ownerExpiryParams is the pair every environment template takes. Each template gets its own copy.
+func ownerExpiryParams() []CatalogParam {
+	return []CatalogParam{
+		{Name: "Owner", Label: "Owner", Required: true, pattern: regexp.MustCompile(`^[A-Za-z0-9_.@ -]{1,64}$`)},
+		{Name: "ExpiresAt", Label: "Expires at (UTC)", Required: true, pattern: regexp.MustCompile(`^[0-9TZ:-]{20}$`)},
+	}
 }
 
 func init() {
@@ -156,21 +160,17 @@ func init() {
 			body: awsdeploy.DevBoxTemplate, capabilities: []string{"CAPABILITY_IAM"}},
 		CatalogTemplate{ID: "qa-sandbox", Title: "QA sandbox",
 			Description:  "A DynamoDB table and an encrypted SQS queue for a test run. Almost free while idle. Deleted when its time is up.",
-			DefaultStack: "qa-sandbox",
-			Parameters: []CatalogParam{
-				{Name: "Owner", Label: "Owner", Required: true, pattern: regexp.MustCompile(`^[A-Za-z0-9_.@ -]{1,64}$`)},
-				{Name: "ExpiresAt", Label: "Expires at (UTC)", Required: true, pattern: regexp.MustCompile(`^[0-9TZ:-]{20}$`)},
-			},
+			DefaultStack: "qa-sandbox", Parameters: ownerExpiryParams(),
 			body: awsdeploy.QASandboxTemplate},
 		CatalogTemplate{ID: "lambda-sandbox", Title: "Lambda sandbox",
 			Description:  "One small Lambda function that echoes what it is given, behind a private function URL that needs AWS credentials, with logs kept for three days. Free while idle. Deleted when its time is up.",
-			DefaultStack: "lambda-sandbox", Parameters: ownerExpiryParams, body: awsdeploy.LambdaSandboxTemplate, capabilities: []string{"CAPABILITY_IAM"}},
+			DefaultStack: "lambda-sandbox", Parameters: ownerExpiryParams(), body: awsdeploy.LambdaSandboxTemplate, capabilities: []string{"CAPABILITY_IAM"}},
 		CatalogTemplate{ID: "event-pipeline", Title: "Event pipeline",
 			Description:  "An encrypted SNS topic that fans out to an encrypted SQS queue, with a dead-letter queue for messages that fail five times. Almost free while idle. Deleted when its time is up.",
-			DefaultStack: "event-pipeline", Parameters: ownerExpiryParams, body: awsdeploy.EventPipelineTemplate},
+			DefaultStack: "event-pipeline", Parameters: ownerExpiryParams(), body: awsdeploy.EventPipelineTemplate},
 		CatalogTemplate{ID: "workflow-sandbox", Title: "Workflow sandbox",
 			Description:  "A two-step Step Functions state machine whose role can call nothing in your account, for trying a workflow. Free while idle. Deleted when its time is up.",
-			DefaultStack: "workflow-sandbox", Parameters: ownerExpiryParams, body: awsdeploy.WorkflowSandboxTemplate, capabilities: []string{"CAPABILITY_IAM"}})
+			DefaultStack: "workflow-sandbox", Parameters: ownerExpiryParams(), body: awsdeploy.WorkflowSandboxTemplate, capabilities: []string{"CAPABILITY_IAM"}})
 }
 
 type envEngine struct{ mu sync.Mutex }
@@ -392,6 +392,28 @@ func (s *Server) handleEnvEstimate(w http.ResponseWriter, r *http.Request) {
 
 var envNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9 -]{2,39}$`)
 
+// envReason is what the approver of the cloud change reads. When the assistant asked, that comes first,
+// so nothing can push it out.
+func envReason(owner string, req envRequest, template string, forTTL float64, viaAI bool) string {
+	r := fmt.Sprintf("Environment %q for %s: %s (%s, %d hours, about $%.2f)", req.Name, owner, req.Purpose, template, req.TTLHours, forTTL)
+	if viaAI {
+		r = "Asked for by the assistant, not yet read by a person. " + r
+	}
+	return r
+}
+
+// fitBytes shortens s to at most n bytes without cutting a character in half.
+func fitBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n - len("…")
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
 func (s *Server) handleRequestEnv(w http.ResponseWriter, r *http.Request) {
 	var req envRequest
 	if !readJSON(w, r, &req) {
@@ -399,10 +421,6 @@ func (s *Server) handleRequestEnv(w http.ResponseWriter, r *http.Request) {
 	}
 	e, herr := s.requestEnv(r.Context(), principalFrom(r.Context()), clientIP(r), req, false)
 	if herr != nil {
-		if herr.status >= 500 {
-			s.internalError(w, "requesting the environment", errors.New(herr.msg))
-			return
-		}
 		writeError(w, herr.status, herr.msg)
 		return
 	}
@@ -424,7 +442,8 @@ func (s *Server) requestEnv(ctx context.Context, p Principal, ip string, req env
 	// One environment at a time per person up to the limit, whoever approves.
 	all, err := s.listEnvs(ctx)
 	if err != nil {
-		return Environment{}, refusal(http.StatusInternalServerError, "reading the environments: "+err.Error())
+		s.log.Error("reading the environments", "err", err)
+		return Environment{}, refusal(http.StatusInternalServerError, "could not read the environments")
 	}
 	active := 0
 	for _, e := range all {
@@ -449,18 +468,16 @@ func (s *Server) requestEnv(ctx context.Context, p Principal, ip string, req env
 		stack = strings.TrimRight(stack[:40], "-")
 	}
 	stack += "-" + id[:4]
-	reason := fmt.Sprintf("Environment %q for %s: %s (%s, %d hours, about $%.2f)", req.Name, p.Name, req.Purpose, tpl.Title, req.TTLHours, q.ForTTLUSD)
-	if viaAI {
-		reason += ". Asked for by the assistant; no person has reviewed the request yet"
-	}
-	c, herr := s.proposeChange(ctx, p, ip, proposeRequest{Kind: kindStackDeploy, Reason: truncate(reason, 500), Template: req.Template, Stack: stack, Params: params})
+	reason := fitBytes(envReason(p.Name, req, tpl.Title, q.ForTTLUSD, viaAI), 500)
+	c, herr := s.proposeChange(ctx, p, ip, proposeRequest{Kind: kindStackDeploy, Reason: reason, Template: req.Template, Stack: stack, Params: params})
 	if herr != nil {
 		return Environment{}, herr
 	}
 	e := Environment{ID: id, Name: req.Name, Template: req.Template, Purpose: req.Purpose, Owner: p.Name, Stack: stack, Params: params, TTLHours: req.TTLHours,
 		Status: envRequested, ChangeID: c.ID, AutoApprove: q.SelfService, ViaAI: viaAI, MonthlyUSD: q.MonthlyUSD, RequestedAt: time.Now().UTC()}
 	if err := s.docs.Put(ctx, kindEnv, e.ID, e); err != nil {
-		return Environment{}, refusal(http.StatusInternalServerError, "saving the environment: "+err.Error())
+		s.log.Error("saving the environment", "err", err)
+		return Environment{}, refusal(http.StatusInternalServerError, "could not save the environment")
 	}
 	s.pruneEnvs(ctx)
 	how := "waits for an administrator"
