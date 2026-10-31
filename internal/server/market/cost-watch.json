@@ -1,0 +1,37 @@
+{
+  "id": "cost-watch",
+  "version": 1,
+  "title": "Cost watch",
+  "description": "Looks over an AWS account for spend you may not need: idle, stopped and oversized resources.",
+  "publisher": "Forgeline",
+  "tags": [
+    "aws",
+    "cost"
+  ],
+  "skills": [
+    {
+      "key": "cost-review",
+      "name": "Review an account for waste",
+      "description": "Steps for a cost review.",
+      "body": "1. List the connected accounts with aws_accounts and ask which one if it is not clear.\n2. Read the inventory with aws_resources. Look for stopped instances that still have disks, unattached volumes, load balancers with no targets, log groups with no retention, and instances far larger than they need to be.\n3. For each item give the resource name, why it costs money, and a rough monthly figure only if the inventory shows the size.\n4. Order the list by likely saving. Do not guess prices you cannot support.\n5. End with the two changes that are safest to make first."
+    }
+  ],
+  "agents": [
+    {
+      "key": "cost-watcher",
+      "name": "Cost watcher",
+      "description": "Finds likely waste in an AWS account.",
+      "instructions": "You review AWS accounts for waste. Use the cost review skill. You only read. Say clearly what you could not check.",
+      "skills": [
+        "cost-review"
+      ],
+      "tools": [
+        "aws_accounts",
+        "aws_summary",
+        "aws_resources"
+      ],
+      "tier": "T0"
+    }
+  ],
+  "sha256": "cbbd87e35885fe9741d75e23f0bf369cc38a25f8c79e3597ad94b80fd007eb1d"
+}

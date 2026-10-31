@@ -151,3 +151,10 @@ in the audit log. It is off until an administrator turns it on.
 
 ![The request form pricing a request against the policy](52-environment-request.png)
 
+## Marketplace
+
+Ready-made skills and agents. Review shows what each agent may read, the tier it could reach, the
+skills it adds and the package fingerprint. Install is pinned to that fingerprint; a package that
+changed since you opened it must be reviewed again. Updates add versions and keep the tier.
+
+![A package's permissions before install](53-marketplace-package.png)

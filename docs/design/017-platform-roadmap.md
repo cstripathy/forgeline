@@ -1,6 +1,6 @@
 # 017: accounts, agents, workflows, environments, guard, marketplace
 
-Status: slices 1 (accounts), 2 (skills and agents, with versions) 3 (workflows), 4 (guard) and 5 (Kubernetes, read-only) and 6 (environments) built; the rest planned. Builds on 013 (AI use cases), 014 (missions
+Status: slices 1 (accounts), 2 (skills and agents, with versions) 3 (workflows), 4 (guard) and 5 (Kubernetes, read-only) 6 (environments) and 7 (marketplace, skills and agents) built; the rest planned. Builds on 013 (AI use cases), 014 (missions
 and autonomy tiers), 015 and 016 (AWS access and the AWS MCP Server).
 
 ## The one rule everything keeps
@@ -20,7 +20,7 @@ propose. None of them gets a new way to write. This is what lets us hand people 
 | 4 | **Guard** (built) | Scheduled read-only security reviews per account (public buckets, open security groups, unencrypted volumes, idle resources, stale users), findings with severity and history, exceptions with an expiry, a pipeline guard (unpinned actions, secrets in logs) | 1, 3 |
 | 5 | **Kubernetes** (read-only built) | Register clusters (kubeconfig or EKS), explorer for namespaces, workloads, pods and events, change proposals as a server-side dry-run diff, same approval | 1 |
 | 6 | **Environments** (built) | Temporary infrastructure and dev boxes for developers and QA from templates: owner, time to live, cost cap, auto-destroy, request then approve (or pre-approved class for small ones) | 1, 5 |
-| 7 | **Marketplace** | Catalogue of agents, skills, workflow and environment templates, and plugins. Install shows the permissions it asks for. Versions pinned by hash. Plugins are MCP servers run in a container, never in the server process | 2, 3 |
+| 7 | **Marketplace** (skills and agents built) | Catalogue of agents, skills, workflow and environment templates, and plugins. Install shows the permissions it asks for. Versions pinned by hash. Plugins are MCP servers run in a container, never in the server process | 2, 3 |
 | 8 | **Per-account writes** | One MCP proxy per account so approved changes can apply outside the primary account; cross-account role assumption; AWS Organizations discovery | 1 |
 
 ## Slice 1: how several accounts work
@@ -43,6 +43,21 @@ version pins exact skill versions and holds a tool allowlist and a tier; running
 assistant (its prompt gets the instructions and skills, its lookups are cut to the allowlist) and
 never widens it. Rollback copies forward. `ask_agent` lets the assistant delegate one level deep.
 See `docs/guides/versioning.md` for the rules. The sketch below is the shape it started from.
+
+## Slice 7: what was built
+
+A package is a manifest of skills and agents with its own sha256 over the content. The catalogue
+ships in the binary (`internal/server/market/*.json`); every manifest is checked at read time and a
+damaged one is listed with the reason but cannot be installed. Install needs the hash the
+administrator reviewed, so a changed package must be reviewed again. The install record holds the
+tier (the most any agent from the package may reach); an agent's own tier is capped to it and a
+proposal tool is dropped at T0. An update appends versions to the skills and agents it made, skips
+unchanged ones, and cannot raise the tier. Uninstall disables the agents and keeps everything.
+
+Not built: a git source of signed manifests (so third parties can publish), signatures beyond the
+hash, workflow and environment-template packages, and plugins. A plugin is an MCP server in a
+container that the server talks to over a socket, with no network unless its manifest asks and an
+administrator allows it; it needs its own design note before code.
 
 ## Slice 3: what was built
 

@@ -7,6 +7,14 @@ section in the pull request that makes the change; a release moves it under its 
 ## [Unreleased]
 
 ### Added
+- **Marketplace.** A catalogue of ready-made skills and agents (failed-run triage, cost watch,
+  security review, cluster health). Each package shows what its agents may read and which tier they
+  could reach before anyone installs it, and carries a sha256 that is checked when the server starts
+  and again at install, so what is installed is what was reviewed. An administrator chooses the most
+  an installed agent may do (T0, or T1 to let it file proposals a person still approves); an update
+  adds new versions, never raises that, and skips what did not change. Uninstalling disables the
+  agents and keeps their history. Plugins (containerised MCP servers) and a git-hosted source are not
+  built yet. (note 017)
 - **Environments.** Temporary infrastructure and developer boxes from catalog templates (a developer
   box and a QA sandbox): each has an owner, a purpose, a time limit and a cost estimate, shown before
   you ask. Approval is the same four-eyes cloud change as ever, unless an administrator turns on a

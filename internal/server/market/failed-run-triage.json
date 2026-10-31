@@ -1,0 +1,38 @@
+{
+  "id": "failed-run-triage",
+  "version": 1,
+  "title": "Failed run triage",
+  "description": "Explains why a pipeline run failed, from its steps and logs, and says what to try first.",
+  "publisher": "Forgeline",
+  "tags": [
+    "pipelines"
+  ],
+  "skills": [
+    {
+      "key": "triage",
+      "name": "Triage a failed run",
+      "description": "Steps for finding the cause of a failed run.",
+      "body": "1. Look up the run with get_run and note which step failed first.\n2. Read that step's log with get_step_log. Quote the line that shows the error.\n3. Compare with the last succeeded run of the same pipeline (list_runs) and say what differs.\n4. Say the most likely cause in one sentence, then up to three things to try, safest first.\n5. If you are not sure, say so and name what you would need to see."
+    }
+  ],
+  "agents": [
+    {
+      "key": "triager",
+      "name": "Run triager",
+      "description": "Reads failed runs and explains them.",
+      "instructions": "You help people understand why a pipeline run failed. Use the triage skill. Only read; never suggest running anything you have not explained. Keep answers short and quote evidence from the log.",
+      "skills": [
+        "triage"
+      ],
+      "tools": [
+        "list_runs",
+        "get_run",
+        "get_step_log",
+        "list_pipelines",
+        "get_pipeline"
+      ],
+      "tier": "T0"
+    }
+  ],
+  "sha256": "a1312a4fe656cba8b3dee50fd020ee754ed1597bcd9c690eb3e2f887cbb479ba"
+}
