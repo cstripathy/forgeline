@@ -7,6 +7,12 @@ section in the pull request that makes the change; a release moves it under its 
 ## [Unreleased]
 
 ### Added
+- **Environments from the assistant, and three more templates.** The assistant, review-tier agents
+  and workflow steps can request a temporary environment in a person's name (`environment_templates`,
+  `request_environment`). The request never starts on its own, even under the self-service policy; a
+  different administrator approves it, and the audit log and the change's reason say the assistant asked.
+  New templates: Lambda sandbox, event pipeline (SNS to SQS with a dead-letter queue) and workflow sandbox
+  (Step Functions), each free while idle.
 - **Pipeline guard.** Guard now reads saved pipelines and recent run logs, with no cloud account
   needed: unpinned images, secrets with open network, agent steps holding extra secrets, credentials
   or secret-looking values written into a pipeline file, `curl | sh`, scripts that print secrets, and

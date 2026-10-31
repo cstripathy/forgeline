@@ -103,16 +103,18 @@ func (w Workflow) version(n int) (WFVersion, bool) {
 
 // WFStepRun is what one step did.
 type WFStepRun struct {
-	ID         string     `json:"id"`
-	Agent      string     `json:"agent"`
-	AgentLabel string     `json:"agent_label,omitempty"` // agent@version that answered
-	Hash       string     `json:"hash,omitempty"`
-	Status     string     `json:"status"`
-	Output     string     `json:"output,omitempty"`
-	Lookups    []string   `json:"lookups,omitempty"`
-	Error      string     `json:"error,omitempty"`
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	ID         string   `json:"id"`
+	Agent      string   `json:"agent"`
+	AgentLabel string   `json:"agent_label,omitempty"` // agent@version that answered
+	Hash       string   `json:"hash,omitempty"`
+	Status     string   `json:"status"`
+	Output     string   `json:"output,omitempty"`
+	Lookups    []string `json:"lookups,omitempty"`
+	// Environments are the environments this step asked for. They wait for an administrator.
+	Environments []string   `json:"environments,omitempty"`
+	Error        string     `json:"error,omitempty"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
 }
 
 // WFStageRun is what one stage did.
@@ -138,6 +140,7 @@ type WFRun struct {
 	Status       string       `json:"status"`
 	Stages       []WFStageRun `json:"stages"`
 	Proposals    []string     `json:"proposals,omitempty"`
+	Environments []string     `json:"environments,omitempty"`
 	Error        string       `json:"error,omitempty"`
 	StartedAt    time.Time    `json:"started_at"`
 	FinishedAt   *time.Time   `json:"finished_at,omitempty"`
@@ -587,6 +590,9 @@ func (s *Server) driveRun(ctx context.Context, id string) {
 		wg.Wait()
 
 		run.Proposals = append(run.Proposals, proposals...)
+		for _, res := range results {
+			run.Environments = append(run.Environments, res.Environments...)
+		}
 		failed := ""
 		for k, res := range results {
 			now := time.Now().UTC()
@@ -660,7 +666,7 @@ func (s *Server) runWFStep(ctx context.Context, run WFRun, sp WFStep, prev strin
 		_ = s.audit(cctx, p, "", "assistant.lookup", "workflow/"+run.Workflow, tool, ok)
 	})
 	_ = s.audit(cctx, p, "", "ai.workflow.step", "workflow/"+run.Workflow, fmt.Sprintf("run %s step %s agent %s, %d lookups, %v", run.ID, sp.ID, label, len(lookups), err == nil), err == nil)
-	res.AgentLabel, res.Hash, res.Lookups = label, v.Hash, lookups
+	res.AgentLabel, res.Hash, res.Lookups, res.Environments = label, v.Hash, lookups, sink.environments
 	if err != nil {
 		res.Error = truncate(err.Error(), 300)
 		return res, sink.proposals

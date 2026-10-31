@@ -58,7 +58,7 @@ export async function workflowPage({ params }) {
           runs.length ? h('div', { class: 'overflow-x-auto' }, h('table', { class: 'tbl', id: 'run-table' }, h('thead', {}, h('tr', {}, ['Started', 'Version', 'By', 'How', 'Status', 'Proposals'].map(x => h('th', {}, x)))),
             h('tbody', {}, runs.slice(0, 15).map(r => h('tr', { class: 'row-link', tabindex: '0', onclick: () => navigate('/workflow-runs/' + r.id), onkeydown: (e) => { if (e.key === 'Enter') navigate('/workflow-runs/' + r.id); } },
               h('td', { class: 'muted whitespace-nowrap text-sm', title: absTime(r.started_at) }, relTime(r.started_at)), h('td', { class: 'text-sm' }, 'v' + r.version), h('td', { class: 'text-sm' }, r.by),
-              h('td', { class: 'text-sm' }, r.trigger === 'schedule' ? 'schedule' : 'by hand'), h('td', {}, statusPill(r.status)), h('td', { class: 'text-sm' }, (r.proposals || []).length || h('span', { class: 'muted' }, '–')))))))
+              h('td', { class: 'text-sm' }, r.trigger === 'schedule' ? 'schedule' : 'by hand'), h('td', {}, statusPill(r.status)), h('td', { class: 'text-sm' }, ((r.proposals || []).length + (r.environments || []).length) || h('span', { class: 'muted' }, '–')))))))
             : h('p', { class: 'muted p-5 text-sm' }, 'No runs yet.')),
         h('section', { class: 'card' }, h('div', { class: 'border-b border-slate-200 px-5 py-3 dark:border-slate-800' }, h('h2', { class: 'h-section' }, 'Versions')),
           h('div', { class: 'overflow-x-auto' }, h('table', { class: 'tbl', id: 'version-table' }, h('thead', {}, h('tr', {}, ['Version', 'Saved by', 'When', 'Note', 'Fingerprint', ''].map(x => h('th', {}, x)))),
@@ -143,6 +143,7 @@ export async function workflowRunPage({ params }) {
       h('div', { class: 'mb-4 flex flex-wrap items-center gap-3 text-sm' }, statusPill(r.status), h('span', { class: 'muted' }, 'runs as ' + r.run_as), shortHash(r.hash),
         r.finished_at && h('span', { class: 'muted' }, 'took ' + duration(r.started_at, r.finished_at))),
       r.error && h('div', { class: 'mb-4' }, r.status === 'failed' ? errorBox(r.error) : notice('info', r.error)),
+      r.environments?.length ? h('div', { class: 'mb-4' }, notice('info', 'Environments requested: ', r.environments.length, '. They wait for an administrator. ', h('a', { class: 'underline', href: '#/environments' }, 'See Environments'))) : null,
       r.proposals?.length ? h('div', { class: 'mb-4' }, notice('info', 'Filed for approval: ', r.proposals.map(id => h('a', { class: 'mr-2 underline', href: '#/proposals/' + id }, id)), ' Nothing changes until a different administrator approves.')) : null,
       h('ol', { class: 'space-y-3', id: 'run-stages' }, r.stages.map((st, i) => h('li', { class: 'card card-pad', 'data-stage-status': st.status },
         h('div', { class: 'mb-2 flex flex-wrap items-center justify-between gap-2' }, h('div', { class: 'flex items-center gap-2 font-medium' }, h('span', { class: 'muted' }, (i + 1) + '.'), st.name, st.gate && h('span', { class: 'pill-idle' }, icon('lock', 'size-3'), st.gate_by ? 'released by ' + st.gate_by : 'gated')), statusPill(st.status)),

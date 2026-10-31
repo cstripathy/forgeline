@@ -132,7 +132,8 @@ func (f *fakeCLI) run(_ context.Context, name string, args ...string) ([]byte, s
 		b, _ := os.ReadFile(strings.TrimPrefix(arg(a, "--parameters"), "file://"))
 		f.paramsSeen = string(b)
 		tpl, _ := os.ReadFile(strings.TrimPrefix(arg(a, "--template-body"), "file://"))
-		if string(tpl) != awsdeploy.DemoTemplate && string(tpl) != awsdeploy.DevBoxTemplate && string(tpl) != awsdeploy.QASandboxTemplate {
+		if string(tpl) != awsdeploy.DemoTemplate && string(tpl) != awsdeploy.DevBoxTemplate && string(tpl) != awsdeploy.QASandboxTemplate &&
+			string(tpl) != awsdeploy.LambdaSandboxTemplate && string(tpl) != awsdeploy.EventPipelineTemplate && string(tpl) != awsdeploy.WorkflowSandboxTemplate {
 			return nil, "template differs", errors.New("exit 1")
 		}
 		for i, x := range a {

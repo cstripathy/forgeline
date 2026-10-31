@@ -106,8 +106,11 @@ secrets yet. See `docs/design/002-spec-extensions.md` for the rules.
 ## Environment templates
 
 `dev-box.yaml` (a private EC2 instance with an encrypted disk, IMDSv2 required, no inbound ports,
-reachable through Session Manager) and `qa-sandbox.yaml` (an on-demand DynamoDB table and an encrypted
-SQS queue) are what the console's **Environments** page deploys. They are created for a person for a
+reachable through Session Manager) `qa-sandbox.yaml` (an on-demand DynamoDB table and an encrypted
+SQS queue), `lambda-sandbox.yaml` (a small function behind a private, IAM-authenticated URL, with its
+own role that can only write its own log group), `event-pipeline.yaml` (an encrypted SNS topic into an
+encrypted SQS queue with a dead-letter queue) and `workflow-sandbox.yaml` (a Step Functions state
+machine whose role has no permissions) are what the console's **Environments** page deploys. They are created for a person for a
 limited time: the `Owner` and `ExpiresAt` parameters are recorded as tags, and Forgeline deletes the
 stack when the time is up. Check them any time without creating anything:
 

@@ -379,7 +379,7 @@ func (s *Server) installAgent(ctx context.Context, in *MarketInstall, m MarketAg
 		v.Tier = in.Tier
 	}
 	for _, t := range m.Tools {
-		if t == proposeChangeTool && v.Tier != tierReview {
+		if isProposalTool(t) && v.Tier != tierReview {
 			continue
 		}
 		v.Tools = append(v.Tools, t)
