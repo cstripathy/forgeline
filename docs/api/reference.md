@@ -26,6 +26,7 @@ Role = the minimum role. A test (`internal/server/apidocs_test.go`) fails if a r
 | `POST /v1/runs` | developer | Submit a pipeline. `multipart/form-data`: field `pipeline` (YAML) and optional `source` (an archive of the files the steps read). |
 | `GET /v1/runs` | viewer | List runs, newest first. |
 | `GET /v1/runs/{id}` | viewer | One run with its steps and their status. |
+| `GET /v1/runs/{id}/failure` | viewer | For a failed run: the step that failed first, exit code, likely causes, steps that did not run, and the end of its output. |
 | `POST /v1/runs/{id}/cancel` | developer | Stop a run. |
 | `GET /v1/runs/{id}/steps/{step}/logs` | viewer | A step's output. Send `Accept: text/event-stream` to follow it live. Secrets appear as `***`. |
 
@@ -121,7 +122,7 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | `GET /v1/k8s/clusters/{id}/resources` | viewer | Nodes, workloads, pods, services, namespaces and warning events, read-only; `?refresh=1` skips the 60 s cache. |
 | `GET /v1/guard/findings` | viewer | Guard findings (`?status=open|resolved`, `?account=`, `?severity=`) with severity counts and any accepted exception. |
 | `GET /v1/guard/scans` | viewer | Recent scans and the automatic scan interval. |
-| `POST /v1/guard/scan` | developer | Start a scan of every account (or `account`); read-only; one at a time. |
+| `POST /v1/guard/scan` | developer | Start a scan of every account, cluster and the pipelines (or one `account`, a cluster as `k8s:<id>`, or `pipelines`); read-only; one at a time. |
 | `PUT /v1/guard/settings` | admin | Automatic scans every 6, 12, 24 or 168 hours, or 0 for off. |
 | `POST /v1/guard/findings/{id}/accept` | admin | Accept a finding for 1 to 90 days with a reason; it reopens when that ends. |
 | `DELETE /v1/guard/findings/{id}/accept` | admin | End an acceptance early. |

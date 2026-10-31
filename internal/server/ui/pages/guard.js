@@ -7,7 +7,7 @@ import { session } from '../app.js';
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
 const SEV_CLASS = { critical: 'pill-bad', high: 'pill-bad', medium: 'pill-wait', low: 'pill-idle', info: 'pill-idle' };
-const SERVICE = { sg: 'Security groups', ebs: 'EBS volumes', ec2: 'EC2', rds: 'RDS', cfn: 'CloudFormation', ecs: 'ECS', logs: 'CloudWatch Logs', ecr: 'ECR', lambda: 'Lambda', 's3-access': 'S3', iam: 'IAM' };
+const SERVICE = { sg: 'Security groups', ebs: 'EBS volumes', ec2: 'EC2', rds: 'RDS', cfn: 'CloudFormation', ecs: 'ECS', logs: 'CloudWatch Logs', ecr: 'ECR', lambda: 'Lambda', 's3-access': 'S3', iam: 'IAM', 'pipe-pipelines': 'Pipelines', 'pipe-logs': 'Run logs' };
 const svcName = (id) => SERVICE[id] || (id.startsWith('k8s-') ? 'Kubernetes ' + id.slice(4) : id);
 const sevPill = (s) => h('span', { class: SEV_CLASS[s] || 'pill-idle', 'data-severity': s }, s);
 const SCHEDULE = [[0, 'Off'], [6, 'Every 6 hours'], [12, 'Every 12 hours'], [24, 'Every day'], [168, 'Every week']];
@@ -41,7 +41,7 @@ export async function guardPage() {
       h('select', { id: 'auto-scan', class: 'input w-auto', onchange: async (e) => { try { await put('/v1/guard/settings', { every_hours: Number(e.target.value) }); toast('Saved', 'ok'); } catch (err) { toast(err.message, 'error'); } } },
         SCHEDULE.map(([v, l]) => h('option', { value: String(v), selected: v === scans.every_hours }, l))));
 
-    mount(el, pageHeader('Guard', 'Security and hygiene checks across your AWS accounts. Scans only read; fixing something is a proposal a person approves.', auto, scanBtn),
+    mount(el, pageHeader('Guard', 'Security and hygiene checks across your AWS accounts, Kubernetes clusters and pipelines. Scans only read; fixing something is a proposal a person approves.', auto, scanBtn),
       last && h('p', { class: 'muted mb-4 text-sm', id: 'scan-status' }, running ? 'A scan is running…' : `Last scan ${relTime(last.finished_at || last.started_at)}`,
         last.accounts?.some(a => a.error) ? ' · ' + last.accounts.filter(a => a.error).map(a => `${a.name}: ${a.error}`).join('; ') : '',
         last.accounts?.some(a => a.skipped?.length) ? ' · could not check: ' + [...new Set(last.accounts.flatMap(a => a.skipped))].join(', ') : ''),
@@ -53,14 +53,14 @@ export async function guardPage() {
         h('div', { class: 'flex gap-1', role: 'tablist' }, [['open', `Open (${total})`], ['accepted', `Accepted (${data.accepted})`], ['resolved', 'Resolved']].map(([id, label]) => h('button', { type: 'button', role: 'tab', id: 'view-' + id, 'aria-selected': String(view === id),
           class: 'rounded-lg px-3 py-1.5 text-sm font-medium ' + (view === id ? 'bg-brand-50 text-brand-700 dark:bg-brand-950/40 dark:text-brand-200' : 'muted hover:bg-slate-100 dark:hover:bg-slate-800'),
           onclick: () => { view = id; load(); } }, label))),
-        accounts.length + clusters.length > 1 && h('select', { id: 'guard-account', class: 'input w-auto', 'aria-label': 'Account', onchange: (e) => { account = e.target.value; load(); } },
-          h('option', { value: '' }, 'Everything'), accounts.map(a => h('option', { value: a.id, selected: a.id === account }, a.name)), clusters.map(k => h('option', { value: 'k8s:' + k.id, selected: 'k8s:' + k.id === account }, k.name + ' (Kubernetes)')))),
+        h('select', { id: 'guard-account', class: 'input w-auto', 'aria-label': 'Account', onchange: (e) => { account = e.target.value; load(); } },
+          h('option', { value: '' }, 'Everything'), h('option', { value: 'pipelines', selected: account === 'pipelines' }, 'Pipelines and run logs'), accounts.map(a => h('option', { value: a.id, selected: a.id === account }, a.name)), clusters.map(k => h('option', { value: 'k8s:' + k.id, selected: 'k8s:' + k.id === account }, k.name + ' (Kubernetes)')))),
       rows.length ? h('div', { class: 'card overflow-x-auto' }, h('table', { class: 'tbl', id: 'findings' }, h('thead', {}, h('tr', {}, ['Severity', 'Finding', 'Resource', 'Account', 'First seen'].map(x => h('th', {}, x)))),
         h('tbody', {}, rows.map(f => h('tr', { class: 'row-link', tabindex: '0', 'data-finding': f.id, 'data-rule': f.rule, onclick: () => detail(f), onkeydown: (e) => { if (e.key === 'Enter') detail(f); } },
           h('td', {}, sevPill(f.severity)), h('td', {}, h('div', { class: 'font-medium' }, f.title), h('div', { class: 'muted max-w-md truncate text-xs' }, f.detail)),
           h('td', {}, h('div', { class: 'text-sm' }, f.name), h('div', { class: 'muted text-xs' }, svcName(f.service))),
           h('td', { class: 'text-sm' }, f.account_name), h('td', { class: 'muted whitespace-nowrap text-sm', title: absTime(f.first_seen) }, relTime(f.first_seen)))))))
-        : emptyState('shield', last ? (view === 'open' ? 'Nothing open here' : 'Nothing to show') : 'No scan has run yet', last ? null : 'Press Scan now to check your accounts.'));
+        : emptyState('shield', last ? (view === 'open' ? 'Nothing open here' : 'Nothing to show') : 'No scan has run yet', last ? null : 'Press Scan now to check your pipelines, accounts and clusters.'));
   }
 
   function detail(f) {

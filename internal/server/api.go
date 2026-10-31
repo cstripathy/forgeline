@@ -32,6 +32,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/runs", s.requireRole(authn.Developer, s.handleSubmit))
 	mux.Handle("GET /v1/runs", s.requireRole(authn.Viewer, s.handleList))
 	mux.Handle("GET /v1/runs/{id}", s.requireRole(authn.Viewer, s.handleGet))
+	mux.Handle("GET /v1/runs/{id}/failure", s.requireRole(authn.Viewer, s.handleRunFailure))
 	mux.Handle("POST /v1/runs/{id}/cancel", s.requireRole(authn.Developer, s.handleCancel))
 	mux.Handle("GET /v1/runs/{id}/steps/{step}/logs", s.requireRole(authn.Viewer, s.handleLogs))
 

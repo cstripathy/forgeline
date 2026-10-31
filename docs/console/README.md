@@ -101,6 +101,16 @@ is an ordinary proposal for a different administrator to approve.
 
 ![A run paused at a gate, with the first stage's findings](47-workflow-run.png)
 
+### Why a run failed
+
+A failed run shows **What went wrong** above its steps: the step that failed first, its exit code,
+the likely causes (a missing command, a failed test, a timeout, a pull that was refused, rejected
+credentials, a network that the step's own `network: none` cut off, and so on), the steps that did
+not run because of it, and the end of its output. It is worked out from what the run recorded, needs
+no assistant, and **Ask the assistant** goes further when you want it.
+
+![What went wrong](58-run-failure.png)
+
 ### Guard
 
 The Guard page shows security and hygiene findings across your AWS accounts, worst first, with counts
@@ -114,6 +124,20 @@ the cause is gone, and a check that could not run (usually permissions) never re
 named on the page. An administrator can **accept** a finding for 1 to 90 days with a reason everyone
 can read; it returns to Open when the time is up. Ask the assistant how to fix one, or give an agent or
 workflow the `guard_findings` tool.
+
+**Pipelines and run logs.** Every scan also reads your saved pipelines and the first 2 MB of each step's
+log in the 25 newest runs, so it works with no cloud account connected (pick "Pipelines and run
+logs" in the filter). It flags an image with no tag or `latest` (high when the step has secrets), a tag
+without a digest on a step with secrets, secrets together with open network (more serious for agent
+steps), an agent step holding secrets beyond its own login, a credential or secret-looking value
+written into the pipeline file, `curl … | sh`, a script that prints a secret, `set -x`/`env` in a step
+with secrets, a saved pipeline that no longer validates, and credential formats (AWS keys, GitHub and
+Slack tokens, Anthropic keys, private keys, live Stripe keys) in a run log. A finding names the
+variable or the kind of credential and never repeats the value. A credential found in a run log
+stays open even after its run is old: revoke it, then have an administrator accept the finding with a
+note saying so.
+
+![Pipeline findings](59-pipeline-guard.png)
 
 ![Guard after a live scan of two AWS accounts](48-guard.png)
 
