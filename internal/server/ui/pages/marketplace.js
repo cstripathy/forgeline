@@ -53,7 +53,7 @@ export async function marketplacePage() {
       h('div', { class: 'flex items-start justify-between gap-2' }, h('h3', { class: 'font-semibold' }, p.title),
         p.problem ? h('span', { class: 'pill-bad' }, 'damaged') : p.source === 'git' && !inst && !p.update ? h('span', { class: 'pill-idle', title: 'Signed by ' + p.signer }, 'signed') : p.update ? h('span', { class: 'pill-wait' }, 'update') : inst ? h('span', { class: 'pill-ok' }, 'installed') : null),
       h('p', { class: 'muted mt-1 flex-1 text-sm' }, p.description),
-      h('div', { class: 'muted mt-3 text-xs' }, `${p.agents.length} agent${p.agents.length === 1 ? '' : 's'} · ${p.skills.length} skill${p.skills.length === 1 ? '' : 's'}${(p.plugins || []).length ? ` · ${p.plugins.length} plugin${p.plugins.length === 1 ? '' : 's'}` : ''}${(p.workflows || []).length ? ` · ${p.workflows.length} workflow${p.workflows.length === 1 ? '' : 's'}` : ''}${(p.env_templates || []).length ? ` · ${p.env_templates.length} environment template${p.env_templates.length === 1 ? '' : 's'}` : ''} · v${p.version} · ${p.publisher}${p.source === 'git' ? ' · git' : ''}`),
+      h('div', { class: 'muted mt-3 text-xs' }, `${(p.agents || []).length} agent${(p.agents || []).length === 1 ? '' : 's'} · ${(p.skills || []).length} skill${(p.skills || []).length === 1 ? '' : 's'}${(p.plugins || []).length ? ` · ${p.plugins.length} plugin${p.plugins.length === 1 ? '' : 's'}` : ''}${(p.workflows || []).length ? ` · ${p.workflows.length} workflow${p.workflows.length === 1 ? '' : 's'}` : ''}${(p.env_templates || []).length ? ` · ${p.env_templates.length} environment template${p.env_templates.length === 1 ? '' : 's'}` : ''} · v${p.version} · ${p.publisher}${p.source === 'git' ? ' · git' : ''}`),
       h('div', { class: 'mt-3 flex justify-end' }, h('button', { class: 'btn-secondary btn-sm', type: 'button', 'data-open': p.id, onclick: () => detail(p) }, 'Review')));
   }
 
@@ -91,8 +91,14 @@ export async function marketplacePage() {
           h('dt', { class: 'muted' }, 'Source'), h('dd', { id: 'package-source' }, p.source === 'git' ? (p.signer ? `git, signed by ${p.signer}` : 'git, not verified') : p.source),
           h('dt', { class: 'muted' }, 'Fingerprint'), h('dd', { class: 'break-all font-mono text-xs', id: 'package-hash' }, p.sha256)),
         p.problem ? notice('error', p.problem) : null,
+        admin && p.source === 'git' && /rollback|first one seen/.test(p.problem || '') ? h('div', { class: 'flex items-center justify-between gap-2 text-sm' },
+          h('span', { class: 'muted' }, 'If the newer version was a mistake, or its key has been replaced, make this server forget what it has seen.'),
+          h('button', { class: 'btn-secondary btn-sm', type: 'button', id: 'forget-seen', onclick: async () => {
+            if (await confirmDialog({ title: 'Forget the versions seen of ' + p.id.replace(/ \(.*$/, ''), body: 'Older signed versions of this package will be accepted again.', confirmLabel: 'Forget' }))
+              act(() => del('/v1/market/seen/' + encodeURIComponent(p.id.replace(/ \(.*$/, ''))), 'Forgotten');
+          } }, 'Forget versions seen')) : null,
         h('div', {}, h('div', { class: 'h-section mb-2' }, 'What it can do'),
-          p.agents.map(a => h('div', { class: 'mb-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800', 'data-agent': a.key },
+          (p.agents || []).map(a => h('div', { class: 'mb-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800', 'data-agent': a.key },
             h('div', { class: 'font-medium' }, a.name), h('div', { class: 'muted text-sm' }, a.description),
             h('div', { class: 'mt-2 text-xs' }, h('span', { class: 'muted' }, 'Allowed to read: '), a.tools.map(t => h('code', { class: 'mr-1.5' }, t))),
             h('div', { class: 'mt-1 text-xs muted' }, tierText(a.tier))))),
@@ -108,7 +114,7 @@ export async function marketplacePage() {
           h('div', { class: 'mt-2 text-xs muted' }, 'Always needs an administrator\'s approval, never self-service. No IAM, nested stacks or macros are allowed in it.'))),
           notice('warn', 'The cost is the publisher\'s own estimate, not Forgeline\'s. Read the body before installing.')) : null,
         (p.plugins || []).length ? h('div', {}, h('div', { class: 'h-section mb-2' }, 'Plugins it adds'), (p.plugins || []).map(pluginBlock), plugins.enabled ? null : notice('warn', 'Plugins are turned off. An administrator turns them on at the top of this page; it needs Docker.')) : null,
-        p.skills.length ? h('div', {}, h('div', { class: 'h-section mb-2' }, 'Skills it adds'), p.skills.map(s => h('details', { class: 'mb-2' }, h('summary', { class: 'cursor-pointer text-sm font-medium' }, s.name),
+        (p.skills || []).length ? h('div', {}, h('div', { class: 'h-section mb-2' }, 'Skills it adds'), p.skills.map(s => h('details', { class: 'mb-2' }, h('summary', { class: 'cursor-pointer text-sm font-medium' }, s.name),
           h('pre', { class: 'mt-1 whitespace-pre-wrap rounded-lg border border-slate-200 p-3 text-xs dark:border-slate-800' }, s.body)))) : null,
         notice('info', 'Nothing here can change your cloud by itself. At most it can propose a change, and a different administrator approves it.'),
         admin && !p.problem ? h('div', { class: 'space-y-2' }, err,

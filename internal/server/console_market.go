@@ -273,14 +273,43 @@ func (s *Server) marketCatalog(ctx context.Context) []marketEntry {
 		add(os.DirFS(dir), ".", "local")
 	}
 	// Packages from the signed git source come last, so a built-in or local package with the same id
-	// always wins and a signed one is shown as a duplicate.
-	for _, e := range s.gitEntries(ctx) {
-		if seen[e.ID] && e.Problem == "" {
-			e.Problem = "another package already has the id " + e.ID
+	// always wins. A verified one that clashes is shown as a duplicate; a damaged one never takes an id
+	// that is in use (its id comes from a file nobody vouched for), and never makes a good one a duplicate.
+	var git []marketEntry
+	all := s.gitEntries(ctx)
+	for _, e := range all {
+		if e.Problem == "" {
+			git = append(git, e)
+		}
+	}
+	for _, e := range all {
+		if e.Problem != "" {
+			git = append(git, e)
+		}
+	}
+	for _, e := range git {
+		if seen[e.ID] {
+			if e.Problem == "" {
+				e.Problem = "another package already has the id " + e.ID
+			}
 			e.ID += " (duplicate from git)"
 		}
-		seen[e.ID] = true
+		if e.Problem == "" {
+			seen[e.ID] = true
+		}
 		out = append(out, e)
+	}
+	// A nil list would reach the console as null.
+	for i := range out {
+		if out[i].Skills == nil {
+			out[i].Skills = []MarketSkill{}
+		}
+		if out[i].Agents == nil {
+			out[i].Agents = []MarketAgent{}
+		}
+		if out[i].Tags == nil {
+			out[i].Tags = []string{}
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Title < out[j].Title })
 	return out
@@ -361,8 +390,10 @@ func (s *Server) handleMarketInstall(w http.ResponseWriter, r *http.Request) {
 	tier := req.Tier
 	if upgrade {
 		tier = cur.Tier // an update never raises it
-		if cur.Source != "" && (cur.Source != pkg.Source || cur.Signer != pkg.Signer) {
-			writeError(w, http.StatusConflict, fmt.Sprintf("this package was installed from %s; an update must come from the same source and signer", sourceLabel(cur.Source, cur.Signer)))
+		// An install made before sources were recorded (Source empty) came from the binary or the
+		// local directory; it may be updated from there but not taken over by a git package.
+		if (cur.Source == "" && pkg.Source == "git") || (cur.Source != "" && (cur.Source != pkg.Source || cur.Signer != pkg.Signer)) {
+			writeError(w, http.StatusConflict, fmt.Sprintf("this package was installed from %s; an update must come from the same source and signer", sourceLabel(orText(cur.Source, "the built-in or local catalogue"), cur.Signer)))
 			return
 		}
 		if pkg.Version <= cur.Version {

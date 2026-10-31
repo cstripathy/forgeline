@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/forgelinehq/forgeline/internal/docstore"
 )
 
 // A signed git source for marketplace packages (note 019). The operator names a repository and the
@@ -31,6 +33,7 @@ const (
 	kindMarketSeen      = "marketseen"
 	maxGitFiles         = 400
 	maxGitFileBytes     = 256 << 10
+	maxGitTotalBytes    = 16 << 20 // all manifests and signatures together, in memory
 	gitFetchTimeout     = 2 * time.Minute
 	gitRefreshEvery     = time.Hour
 )
@@ -41,6 +44,9 @@ var (
 	gitFileRE   = regexp.MustCompile(`^packages/([a-z0-9][a-z0-9._-]{0,60})\.(json|sig)$`)
 	gitTreeLine = regexp.MustCompile(`^(\d{6}) (\w+) ([0-9a-f]{40,64}) +(\d+|-)$`)
 )
+
+// maxGitRepoBytes bounds what the bare repository may take on disk; a var so a test can lower it.
+var maxGitRepoBytes int64 = 128 << 20
 
 // marketGitConfig is what the operator set.
 type marketGitConfig struct {
@@ -121,6 +127,8 @@ func checkGitSource(rawURL, ref string) string {
 	switch {
 	case err != nil || (u.Scheme != "https" && u.Scheme != "file"):
 		return "FORGELINE_MARKET_GIT must be an https:// or file:// URL or an absolute path"
+	case u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(rawURL, "?#"):
+		return "FORGELINE_MARKET_GIT must not have a query or fragment"
 	case u.User != nil:
 		return "FORGELINE_MARKET_GIT must not contain credentials; the repository has to be readable without them"
 	case u.Scheme == "https" && u.Host == "":
@@ -129,12 +137,26 @@ func checkGitSource(rawURL, ref string) string {
 	return ""
 }
 
-// displayURL is the URL with anything after the host path stripped, safe to show.
-func (c marketGitConfig) displayURL() string { return c.URL }
+// displayURL is what the console may show: an https URL without query or fragment, and only the last
+// element of a local path, so a server's directory layout is not given to every developer.
+func (c marketGitConfig) displayURL() string {
+	if strings.HasPrefix(c.URL, "/") {
+		return "local repository " + filepath.Base(c.URL)
+	}
+	u, err := url.Parse(c.URL)
+	if err != nil {
+		return "a git repository"
+	}
+	if u.Scheme == "file" {
+		return "local repository " + filepath.Base(u.Path)
+	}
+	return u.Scheme + "://" + u.Host + u.Path
+}
 
 // marketSnapshot is the last verified-readable state of the repository.
 type marketSnapshot struct {
 	Files     map[string][]byte // "name.json" and "name.sig" under packages/
+	Large     map[string]bool   // files that were too large to read
 	Commit    string
 	FetchedAt time.Time
 	Err       string
@@ -145,15 +167,47 @@ type marketGit struct {
 	cfg  *marketGitConfig // set by tests; nil means the environment
 	snap marketSnapshot
 	busy bool
+
+	entries   []marketEntry // verified snapshot, for entriesFP
+	entriesFP string
+	env       marketGitConfig // the environment's configuration, re-read every few seconds
+	envAt     time.Time
 }
+
+const envConfigTTL = 5 * time.Second
 
 func (s *Server) marketGitConfig() marketGitConfig {
 	s.market.mu.Lock()
-	defer s.market.mu.Unlock()
 	if s.market.cfg != nil {
-		return *s.market.cfg
+		c := *s.market.cfg
+		s.market.mu.Unlock()
+		return c
 	}
-	return marketGitFromEnv(os.Getenv)
+	if time.Since(s.market.envAt) < envConfigTTL {
+		c := s.market.env
+		s.market.mu.Unlock()
+		return c
+	}
+	s.market.mu.Unlock()
+	c := marketGitFromEnv(os.Getenv) // reads the key file, so not under the lock
+	s.market.mu.Lock()
+	s.market.env, s.market.envAt = c, time.Now()
+	s.market.mu.Unlock()
+	return c
+}
+
+// gitEnviron is git's whole environment: PATH, a home that is the bare repository, no configuration
+// files, no prompts and only the two transports, plus the operator's proxy and certificate settings
+// (theirs to set). Nothing else is passed on, so no secret in the server's environment can reach git.
+func gitEnviron(dir string, getenv func(string) string) []string {
+	env := []string{"PATH=" + getenv("PATH"), "HOME=" + dir, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0",
+		"GIT_ALLOW_PROTOCOL=https:file", "GIT_ASKPASS=/bin/false", "LC_ALL=C"}
+	for _, k := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO"} {
+		if v := getenv(k); v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	return env
 }
 
 // gitRun runs git with nothing but PATH in its environment: no configuration files, no prompts, no
@@ -162,8 +216,8 @@ func gitRun(ctx context.Context, dir string, stdin []byte, args ...string) ([]by
 	full := append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.ext.allow=never",
 		"-c", "protocol.allow=never", "-c", "protocol.https.allow=always", "-c", "protocol.file.allow=always", "--git-dir", dir}, args...)
 	cmd := exec.CommandContext(ctx, "git", full...)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0",
-		"GIT_ALLOW_PROTOCOL=https:file", "GIT_ASKPASS=/bin/false", "LC_ALL=C"}
+	cmd.Env = gitEnviron(dir, os.Getenv)
+	cmd.WaitDelay = 5 * time.Second // a child that keeps the pipes open must not outlive the timeout
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
@@ -201,8 +255,14 @@ func readGitSnapshot(ctx context.Context, cfg marketGitConfig, dir string) (mark
 			return marketSnapshot{}, err
 		}
 	}
+	// Objects from earlier fetches are unreachable (no ref is kept), so drop them before fetching.
+	_, _ = gitRun(ctx, dir, nil, "gc", "-q", "--prune=now")
 	if _, err := gitRun(ctx, dir, nil, "fetch", "-q", "--depth", "1", "--no-tags", "--no-recurse-submodules", "--", cfg.URL, cfg.Ref); err != nil {
 		return marketSnapshot{}, err
+	}
+	if n, err := dirSize(dir); err != nil || n > maxGitRepoBytes {
+		os.RemoveAll(dir) // start clean next time rather than keep a repository that large
+		return marketSnapshot{}, fmt.Errorf("the repository is larger than %d MB", maxGitRepoBytes>>20)
 	}
 	rev, err := gitRun(ctx, dir, nil, "rev-parse", "--verify", "FETCH_HEAD^{commit}")
 	if err != nil {
@@ -216,11 +276,12 @@ func readGitSnapshot(ctx context.Context, cfg marketGitConfig, dir string) (mark
 	if err != nil {
 		return marketSnapshot{}, err
 	}
-	snap := marketSnapshot{Files: map[string][]byte{}, Commit: commit, FetchedAt: time.Now().UTC()}
+	snap := marketSnapshot{Files: map[string][]byte{}, Large: map[string]bool{}, Commit: commit, FetchedAt: time.Now().UTC()}
 	entries := strings.Split(strings.TrimRight(string(tree), "\x00"), "\x00")
 	if len(entries) > maxGitFiles*2 {
 		return marketSnapshot{}, fmt.Errorf("packages/ holds more than %d files", maxGitFiles*2)
 	}
+	total := 0
 	for _, e := range entries {
 		meta, name, ok := strings.Cut(e, "\t")
 		if !ok {
@@ -232,16 +293,33 @@ func readGitSnapshot(ctx context.Context, cfg marketGitConfig, dir string) (mark
 			continue
 		}
 		if size, _ := strconv.Atoi(m[4]); size > maxGitFileBytes {
-			snap.Files[strings.TrimPrefix(name, "packages/")] = nil // present but too large: reported as such
+			snap.Large[strings.TrimPrefix(name, "packages/")] = true
 			continue
 		}
 		blob, err := gitRun(ctx, dir, nil, "cat-file", "blob", m[3])
 		if err != nil {
 			return marketSnapshot{}, err
 		}
-		snap.Files[strings.TrimPrefix(name, "packages/")] = blob
+		if total += len(blob); total > maxGitTotalBytes {
+			return marketSnapshot{}, fmt.Errorf("packages/ holds more than %d MB", maxGitTotalBytes>>20)
+		}
+		snap.Files[strings.TrimPrefix(name, "packages/")] = append([]byte{}, blob...) // never nil, so an empty file is not a missing one
 	}
 	return snap, nil
+}
+
+func dirSize(dir string) (int64, error) {
+	var n int64
+	err := filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if info, ierr := d.Info(); ierr == nil && !d.IsDir() {
+			n += info.Size()
+		}
+		return nil
+	})
+	return n, err
 }
 
 // refreshMarketGit fetches the repository and keeps the result, or keeps the last good one and says
@@ -351,9 +429,10 @@ type marketSeen struct {
 }
 
 // recordSeen remembers the versions of packages that verified, so an older one cannot be served later.
+// A record it cannot read is left alone rather than rebuilt, so a store error never resets it.
 func (s *Server) recordSeen(ctx context.Context, cfg marketGitConfig, snap marketSnapshot) {
 	for name, blob := range snap.Files {
-		if !strings.HasSuffix(name, ".json") || blob == nil {
+		if !strings.HasSuffix(name, ".json") {
 			continue
 		}
 		p, _, err := verifySigned(blob, snap.Files[strings.TrimSuffix(name, ".json")+".sig"], cfg.Keys)
@@ -361,23 +440,30 @@ func (s *Server) recordSeen(ctx context.Context, cfg marketGitConfig, snap marke
 			continue
 		}
 		var seen marketSeen
-		_ = s.docs.Get(ctx, kindMarketSeen, p.ID, &seen)
-		if seen.Hashes == nil {
-			seen = marketSeen{ID: p.ID, Hashes: map[string]string{}}
-		}
-		if old, ok := seen.Hashes[fmt.Sprint(p.Version)]; ok && old != p.SHA256 {
-			continue // equivocation: the first one seen stays the record
-		}
-		if p.Version < seen.Version {
+		switch err := s.docs.Get(ctx, kindMarketSeen, p.ID, &seen); {
+		case errors.Is(err, docstore.ErrNotFound):
+			seen = marketSeen{ID: p.ID}
+		case err != nil:
 			continue
 		}
-		seen.Version, seen.Hashes[fmt.Sprint(p.Version)] = p.Version, p.SHA256
+		if seen.Hashes == nil {
+			seen.Hashes = map[string]string{}
+		}
+		v := fmt.Sprint(p.Version)
+		if old, ok := seen.Hashes[v]; ok && old != p.SHA256 {
+			continue // equivocation: the first one seen stays the record
+		}
+		if p.Version < seen.Version || (seen.Hashes[v] == p.SHA256 && seen.Version >= p.Version) {
+			continue // nothing new
+		}
+		seen.Version, seen.Hashes[v] = p.Version, p.SHA256
 		_ = s.docs.Put(ctx, kindMarketSeen, p.ID, seen)
 	}
 }
 
 // gitEntries turns the snapshot into catalogue entries. Every manifest appears; those that fail
-// verification carry the reason and cannot be installed.
+// verification carry the reason and cannot be installed. Parsing and verifying is done once per
+// snapshot and key set; only the rollback check reads the store on each call.
 func (s *Server) gitEntries(ctx context.Context) []marketEntry {
 	cfg := s.marketGitConfig()
 	if !cfg.configured() || cfg.Err != "" {
@@ -385,9 +471,45 @@ func (s *Server) gitEntries(ctx context.Context) []marketEntry {
 	}
 	s.market.mu.Lock()
 	snap := s.market.snap
+	fp := fmt.Sprintf("%s|%s|%s", snap.Commit, snap.FetchedAt.Format(time.RFC3339Nano), keyFingerprint(cfg.Keys))
+	cached, ok := s.market.entries, s.market.entriesFP == fp
 	s.market.mu.Unlock()
+	if !ok {
+		cached = verifySnapshot(snap, cfg.Keys)
+		s.market.mu.Lock()
+		s.market.entries, s.market.entriesFP = cached, fp
+		s.market.mu.Unlock()
+	}
+	out := make([]marketEntry, len(cached))
+	copy(out, cached)
+	for i := range out {
+		if out[i].Problem == "" {
+			if err := s.rollbackCheck(ctx, out[i].MarketPackage); err != nil {
+				out[i].Problem = err.Error()
+			}
+		}
+	}
+	return out
+}
+
+func keyFingerprint(keys map[string]ed25519.PublicKey) string {
+	var ids []string
+	for id, k := range keys {
+		ids = append(ids, id+"="+base64.StdEncoding.EncodeToString(k))
+	}
+	sort.Strings(ids)
+	return strings.Join(ids, ",")
+}
+
+// verifySnapshot parses and verifies every manifest in a snapshot.
+func verifySnapshot(snap marketSnapshot, keys map[string]ed25519.PublicKey) []marketEntry {
 	var names []string
 	for n := range snap.Files {
+		if strings.HasSuffix(n, ".json") {
+			names = append(names, n)
+		}
+	}
+	for n := range snap.Large {
 		if strings.HasSuffix(n, ".json") {
 			names = append(names, n)
 		}
@@ -397,24 +519,24 @@ func (s *Server) gitEntries(ctx context.Context) []marketEntry {
 	for _, n := range names {
 		base := strings.TrimSuffix(n, ".json")
 		e := marketEntry{Source: "git"}
-		blob := snap.Files[n]
 		var err error
-		if blob == nil {
+		switch {
+		case snap.Large[n]:
 			err = fmt.Errorf("the manifest is larger than %d KB", maxGitFileBytes>>10)
-		} else {
+		case snap.Large[base+".sig"]:
+			err = fmt.Errorf("the signature file is larger than %d KB", maxGitFileBytes>>10)
+		default:
+			sig := snap.Files[base+".sig"] // nil only when there is no file; an empty file is non-nil
 			var p MarketPackage
-			p, e.Signer, err = verifySigned(blob, snap.Files[base+".sig"], cfg.Keys)
+			p, e.Signer, err = verifySigned(snap.Files[n], sig, keys)
 			e.MarketPackage = p
 			if err == nil {
 				err = p.check()
 			}
-			if err == nil {
-				err = s.rollbackCheck(ctx, p)
-			}
 		}
 		if err != nil {
 			e.Problem = err.Error()
-			if e.ID == "" {
+			if e.ID == "" || !marketIDRE.MatchString(e.ID) {
 				e.ID = base
 			}
 		}
@@ -430,8 +552,11 @@ func (s *Server) gitEntries(ctx context.Context) []marketEntry {
 
 func (s *Server) rollbackCheck(ctx context.Context, p MarketPackage) error {
 	var seen marketSeen
-	if s.docs.Get(ctx, kindMarketSeen, p.ID, &seen) != nil {
+	switch err := s.docs.Get(ctx, kindMarketSeen, p.ID, &seen); {
+	case errors.Is(err, docstore.ErrNotFound):
 		return nil
+	case err != nil:
+		return errors.New("the record of versions seen could not be read, so a rollback cannot be ruled out; try again")
 	}
 	if p.Version < seen.Version {
 		return fmt.Errorf("version %d is older than version %d, which this server has already seen signed; a rollback is refused", p.Version, seen.Version)
@@ -440,6 +565,20 @@ func (s *Server) rollbackCheck(ctx context.Context, p MarketPackage) error {
 		return fmt.Errorf("a different manifest was signed for version %d before; the first one seen stands", p.Version)
 	}
 	return nil
+}
+
+// handleMarketForget clears what this server remembers of a package's signed versions, for when a
+// publisher signed a wrong version number or a key was compromised and has been replaced. Without it
+// a mistaken version 999 would lock the publisher out for good.
+func (s *Server) handleMarketForget(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	err := s.docs.Delete(r.Context(), kindMarketSeen, id)
+	if err != nil && !errors.Is(err, docstore.ErrNotFound) {
+		s.internalError(w, "clearing the record", err)
+		return
+	}
+	s.auditReq(r, "market.forget", "market/"+id, "versions seen from git forgotten", true)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // --- API ---

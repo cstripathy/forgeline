@@ -68,7 +68,8 @@ func marketKeygen(args []string, stdout, stderr io.Writer) int {
 }
 
 func validKeyName(s string) bool {
-	if s == "" || len(s) > 39 || s[0] == '-' || s[0] == '.' {
+	// The same rule as the server's: a lowercase letter or digit first, then letters, digits . _ -
+	if s == "" || len(s) > 39 || !(s[0] >= 'a' && s[0] <= 'z' || s[0] >= '0' && s[0] <= '9') {
 		return false
 	}
 	for _, r := range s {

@@ -26,7 +26,10 @@ checkout, so there are no hooks, no filters, no submodules and no symlinks to fo
 directly under `packages/`, at most 256 KB each and 400 in all, are read. Git runs with an empty
 environment apart from `PATH`, no global or system configuration, no prompts, and only the `https` and
 `file` transports. The fetch runs at start, then every hour, and when an administrator presses refresh.
-A failed fetch keeps the last good snapshot and shows its error.
+A failed fetch keeps the last good snapshot and shows its error. The fetch has a two-minute limit; the
+bare repository may take at most 128 MB on disk (it is deleted and the fetch fails if it does) and the
+manifests and signatures at most 16 MB in memory; unreachable objects from earlier fetches are pruned
+before each one.
 
 ## What is signed
 
@@ -47,7 +50,7 @@ reason, and cannot be installed:
 5. the version is not lower than the highest version this server has already verified for that id from
    git (rollback), and a version already seen has the same hash it had (equivocation).
 
-The highest version seen is stored when a snapshot is verified. This is the replay defence: an attacker who
+The highest version seen is stored when a snapshot is verified; an unreadable record fails closed (nothing is offered). This is the replay defence: an attacker who
 can write to the repository, or serve an old tag, cannot hand back an old signed package that was
 since fixed.
 
@@ -55,7 +58,11 @@ An install records its source and signer. An upgrade must come from the same sou
 second trusted key cannot take over a package id, and a package can never shadow a built-in one (the
 duplicate-id rule from 017 still applies, built-in first).
 
-Not covered: a trusted key that is stolen can sign anything until the operator removes it from the list;
+An administrator can clear a package's record (`DELETE /v1/market/seen/{id}`, audited) when a version was
+signed by mistake or a key was replaced; without it one wrong version number would lock the publisher out.
+
+Not covered: the rollback defence starts when a server first sees a package, so a server that has never
+seen version 3 cannot tell that version 2 is old; a trusted key that is stolen can sign anything until the operator removes it from the list;
 there is no online revocation list, no key rotation protocol (add the new key, remove the old one) and no
 transparency log.
 

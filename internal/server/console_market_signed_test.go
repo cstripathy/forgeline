@@ -6,11 +6,14 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/forgelinehq/forgeline/internal/docstore"
 )
 
 type signer struct {
@@ -449,5 +452,259 @@ func TestGitRunUsesAnEmptyEnvironmentAndNoHooks(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("something from the repository or the environment was executed")
+	}
+}
+
+func TestGitSnapshotIsBoundedOnDiskAndInMemory(t *testing.T) {
+	src := newGitRepo(t)
+	big := make([]byte, 200<<10)
+	rand.Read(big) // random, so it does not compress and the repository really grows
+	files := map[string][]byte{}
+	for i := 0; i < 6; i++ {
+		files["p"+string(rune('a'+i))+".json"] = append([]byte{}, big...)
+		files["p"+string(rune('a'+i))+".json"][0] = byte(i)
+	}
+	src.commit(files)
+	cfg := marketGitConfig{URL: "file://" + src.dir, Ref: "main"}
+
+	// Over the in-memory budget for manifests: refused, not partly loaded.
+	dir := t.TempDir()
+	if _, err := readGitSnapshot(context.Background(), cfg, dir); err != nil {
+		t.Fatalf("within the limits: %v", err)
+	}
+	old := maxGitRepoBytes
+	t.Cleanup(func() { maxGitRepoBytes = old })
+	maxGitRepoBytes = 100 << 10
+	dir2 := filepath.Join(t.TempDir(), "repo")
+	if _, err := readGitSnapshot(context.Background(), cfg, dir2); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Errorf("an oversized repository was accepted: %v", err)
+	}
+	if _, err := os.Stat(dir2); err == nil {
+		t.Error("an oversized repository was kept on disk")
+	}
+}
+
+func TestGitSnapshotRefusesTooMuchManifestData(t *testing.T) {
+	src := newGitRepo(t)
+	chunk := []byte(strings.Repeat("a", maxGitFileBytes-10))
+	files := map[string][]byte{}
+	for i := 0; i < maxGitTotalBytes/len(chunk)+3; i++ {
+		b := append([]byte{}, chunk...)
+		b[0], b[1] = byte('a'+i%26), byte('a'+i/26)
+		files["x"+strings.Repeat("y", i%7)+string(rune('a'+i%26))+string(rune('a'+i/26))+".json"] = b
+	}
+	src.commit(files)
+	if _, err := readGitSnapshot(context.Background(), marketGitConfig{URL: "file://" + src.dir, Ref: "main"}, t.TempDir()); err == nil || !strings.Contains(err.Error(), "more than") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// failingSeen is a store whose reads of the rollback record fail, as a flaky database would.
+type failingSeen struct {
+	docstore.Store
+	fail bool
+}
+
+func (f *failingSeen) Get(ctx context.Context, kind, id string, out any) error {
+	if f.fail && kind == kindMarketSeen {
+		return errors.New("database unavailable")
+	}
+	return f.Store.Get(ctx, kind, id, out)
+}
+
+func TestRollbackProtectionFailsClosedAndAnAdministratorCanResetIt(t *testing.T) {
+	m := newMCPHarness(t)
+	publish(t)
+	a := newSigner(t, "acme")
+	repo := newGitRepo(t)
+	m.useGit(repo, keysOf(a))
+	commit := func(p MarketPackage) {
+		mf, sg := a.sign(t, p)
+		repo.commit(map[string][]byte{"pkg.json": mf, "pkg.sig": sg})
+		m.refreshGit(200)
+	}
+	commit(gitPkg("pkg", 9, "A version signed by mistake."))
+	commit(gitPkg("pkg", 2, "The real next version."))
+	e := entryByID(listMarket(t, m.admin))["pkg"]
+	if !strings.Contains(e.Problem, "rollback") {
+		t.Fatalf("pkg = %+v", e)
+	}
+	// An unreadable record means a rollback cannot be ruled out, so nothing is offered.
+	fs := &failingSeen{Store: m.srv.docs}
+	m.srv.docs = fs
+	fs.fail = true
+	// A lower version refreshed while the record is unreadable must not replace the stored high mark.
+	lowM, lowS := a.sign(t, gitPkg("pkg", 2, "The real next version."))
+	repo.commit(map[string][]byte{"pkg.json": lowM, "pkg.sig": lowS})
+	m.refreshGit(200)
+	e = entryByID(listMarket(t, m.admin))["pkg"]
+	if e.Problem == "" || !strings.Contains(e.Problem, "could not be read") {
+		t.Errorf("a store error let a package through: %+v", e)
+	}
+	fs.fail = false
+	// ...and the failed read did not reset the record: an old version is still refused.
+	commit(gitPkg("pkg", 3, "Old again."))
+	if e = entryByID(listMarket(t, m.admin))["pkg"]; !strings.Contains(e.Problem, "rollback") {
+		t.Errorf("the record was reset by a store error: %+v", e)
+	}
+	// An administrator can make the server forget, and it is audited.
+	m.dev.expect(403, "DELETE", "/v1/market/seen/pkg", nil)
+	m.admin.expect(200, "DELETE", "/v1/market/seen/pkg", nil)
+	commit(gitPkg("pkg", 2, "The real next version."))
+	if e = entryByID(listMarket(t, m.admin))["pkg"]; e.Problem != "" || e.Version != 2 {
+		t.Errorf("after forgetting: %+v", e)
+	}
+	if log := string(m.admin.expect(200, "GET", "/v1/audit?limit=50", nil)); !strings.Contains(log, "market.forget") {
+		t.Errorf("the reset is not in the audit log")
+	}
+}
+
+func TestADamagedGitEntryCannotTakeAnIdThatIsInUse(t *testing.T) {
+	m := newMCPHarness(t)
+	a := newSigner(t, "acme")
+	repo := newGitRepo(t)
+	m.useGit(repo, keysOf(a))
+	builtin := gitPkg("taken-id", 1, "Built-in steps.")
+	builtin.Title = "ZZZ Built-in"
+	publish(t, builtin)
+	// An unsigned file that claims the built-in id and sorts first by title, and a valid signed package
+	// whose id is the same as another damaged one's.
+	evil := gitPkg("taken-id", 1, "Evil.")
+	evil.Title = "AAA Evil"
+	evil.SHA256 = evil.contentHash()
+	em, _ := json.Marshal(evil)
+	good := gitPkg("other", 1, "Fine.")
+	gm, gs := a.sign(t, good)
+	dup := gitPkg("other", 1, "Unsigned twin of a signed package.")
+	dup.SHA256 = dup.contentHash()
+	dm, _ := json.Marshal(dup)
+	repo.commit(map[string][]byte{"evil.json": em, "good.json": gm, "good.sig": gs, "a-twin.json": dm})
+	m.refreshGit(200)
+	got := listMarket(t, m.admin)
+	byID := entryByID(got)
+	if byID["taken-id"].Source != "built-in" || byID["taken-id"].Problem != "" {
+		t.Fatalf("the built-in package lost its id: %+v", byID["taken-id"])
+	}
+	if byID["other"].Source != "git" || byID["other"].Problem != "" {
+		t.Errorf("the signed package was flagged by an unsigned twin: %+v", byID["other"])
+	}
+	for _, e := range got {
+		if e.Source == "git" && e.Problem != "" && (e.ID == "taken-id" || e.ID == "other") {
+			t.Errorf("a damaged entry holds a live id: %+v", e)
+		}
+	}
+	// Installing the built-in by its id still works.
+	m.admin.expect(201, "POST", "/v1/market/install", map[string]any{"id": "taken-id", "hash": byID["taken-id"].SHA256})
+}
+
+func TestAnOlderInstallCannotBeTakenOverByAGitPackage(t *testing.T) {
+	m := newMCPHarness(t)
+	a := newSigner(t, "acme")
+	repo := newGitRepo(t)
+	m.useGit(repo, keysOf(a))
+	publish(t)
+	// An install record from before sources were recorded.
+	legacy := MarketInstall{ID: "pkg", Version: 1, Hash: strings.Repeat("a", 64), Tier: "T1", By: "ada", Skills: map[string]string{}, Agents: map[string]string{}}
+	if err := m.srv.docs.Put(context.Background(), kindMarketInstall, "pkg", legacy); err != nil {
+		t.Fatal(err)
+	}
+	mf, sg := a.sign(t, gitPkg("pkg", 2, "A takeover."))
+	repo.commit(map[string][]byte{"pkg.json": mf, "pkg.sig": sg})
+	m.refreshGit(200)
+	e := entryByID(listMarket(t, m.admin))["pkg"]
+	if e.Problem != "" {
+		t.Fatalf("pkg = %+v", e)
+	}
+	body := m.admin.expect(409, "POST", "/v1/market/install", map[string]any{"id": "pkg", "hash": e.SHA256})
+	if !strings.Contains(string(body), "same source and signer") {
+		t.Errorf("body = %s", body)
+	}
+}
+
+func TestGitDisplayURLAndSourceRulesKeepPathsAndQueriesPrivate(t *testing.T) {
+	for url, want := range map[string]string{
+		"https://example.com/acme/market.git":   "https://example.com/acme/market.git",
+		"file:///srv/private/layout/market.git": "local repository market.git",
+		"/srv/private/layout/market.git":        "local repository market.git",
+	} {
+		if got := (marketGitConfig{URL: url}).displayURL(); got != want {
+			t.Errorf("displayURL(%q) = %q, want %q", url, got, want)
+		}
+	}
+	for _, bad := range []string{"https://example.com/x.git?token=abc", "https://example.com/x.git#frag", "file:///srv/x.git?a=b"} {
+		if checkGitSource(bad, "main") == "" {
+			t.Errorf("%q was accepted", bad)
+		}
+	}
+	// The status a developer reads never carries the path of a local repository.
+	m := newMCPHarness(t)
+	publish(t)
+	repo := newGitRepo(t)
+	m.useGit(repo, nil)
+	var st struct{ Git map[string]any }
+	json.Unmarshal(m.dev.expect(200, "GET", "/v1/market/packages", nil), &st)
+	if u, _ := st.Git["url"].(string); strings.Contains(u, repo.dir) {
+		t.Errorf("the status shows the server's path: %q", u)
+	}
+}
+
+func TestGitEnvironmentPassesOnlyProxyAndCertificateSettings(t *testing.T) {
+	env := map[string]string{"PATH": "/bin", "HTTPS_PROXY": "http://proxy:3128", "SSL_CERT_FILE": "/etc/ca.pem", "AWS_SECRET_ACCESS_KEY": "secret",
+		"FORGELINE_TOKEN": "token", "GIT_SSH_COMMAND": "evil", "GIT_EXEC_PATH": "/tmp/evil", "HOME": "/root"}
+	got := strings.Join(gitEnviron("/data/repo", func(k string) string { return env[k] }), "\n")
+	for _, want := range []string{"PATH=/bin", "HOME=/data/repo", "HTTPS_PROXY=http://proxy:3128", "SSL_CERT_FILE=/etc/ca.pem", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
+	}
+	for _, leak := range []string{"secret", "token", "evil", "/root"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("%q leaked into git's environment:\n%s", leak, got)
+		}
+	}
+}
+
+func TestEmptyAndOversizedGitFilesAreNamedCorrectly(t *testing.T) {
+	m := newMCPHarness(t)
+	publish(t)
+	a := newSigner(t, "acme")
+	repo := newGitRepo(t)
+	m.useGit(repo, keysOf(a))
+	gm, _ := a.sign(t, gitPkg("big-sig", 1, "Steps."))
+	hm, _ := a.sign(t, gitPkg("empty-sig", 1, "Steps."))
+	nm, _ := a.sign(t, gitPkg("nosig", 1, "Steps."))
+	repo.commit(map[string][]byte{
+		"empty.json": {}, "big-sig.json": gm, "big-sig.sig": []byte(strings.Repeat("x", maxGitFileBytes+1)),
+		"empty-sig.json": hm, "empty-sig.sig": {}, "nosig.json": nm,
+	})
+	m.refreshGit(200)
+	got := entryByID(listMarket(t, m.admin))
+	if p := got["empty"].Problem; strings.Contains(p, "larger") || p == "" {
+		t.Errorf("an empty manifest is not a large one: %q", p)
+	}
+	if p := got["big-sig"].Problem; !strings.Contains(p, "signature file is larger") {
+		t.Errorf("big sig: %q", p)
+	}
+	if p := got["empty-sig"].Problem; strings.Contains(p, "no .sig file") || p == "" {
+		t.Errorf("an empty .sig is not a missing one: %q", p)
+	}
+	if p := got["nosig"].Problem; !strings.Contains(p, "no .sig file") {
+		t.Errorf("a missing .sig: %q", p)
+	}
+}
+
+func TestEntriesAreNeverNullForTheConsole(t *testing.T) {
+	m := newMCPHarness(t)
+	publish(t)
+	a := newSigner(t, "acme")
+	repo := newGitRepo(t)
+	m.useGit(repo, keysOf(a))
+	only := MarketPackage{ID: "tpl-only", Version: 1, Title: "Template only", Description: "d", Publisher: "Acme", EnvTemplates: envPkg(1).EnvTemplates}
+	mf, sg := a.sign(t, only)
+	repo.commit(map[string][]byte{"tpl-only.json": mf, "tpl-only.sig": sg, "junk.json": []byte(`{"id":"junk"}`)})
+	m.refreshGit(200)
+	raw := string(m.dev.expect(200, "GET", "/v1/market/packages", nil))
+	if strings.Contains(raw, `"skills":null`) || strings.Contains(raw, `"agents":null`) || strings.Contains(raw, `"tags":null`) {
+		t.Errorf("a null list would break the console page: %s", raw)
 	}
 }

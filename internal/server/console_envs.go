@@ -458,7 +458,11 @@ func (s *Server) requestEnv(ctx context.Context, p Principal, ip string, req env
 	if herr != nil {
 		return Environment{}, herr
 	}
-	spec, _ := s.envSpecFor(ctx, req.Template)
+	spec, ok := s.envSpecFor(ctx, req.Template)
+	if !ok {
+		writeError(w, http.StatusConflict, "that template was removed while you were asking; choose another")
+		return
+	}
 	q := quote(pol, spec, req.Template, params, req.TTLHours)
 	if viaAI {
 		q.SelfService = false

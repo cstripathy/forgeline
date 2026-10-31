@@ -51,7 +51,7 @@ func TestMarketKeygenAndSignRoundTrip(t *testing.T) {
 	if _, err := os.Stat("bad.sig"); err == nil {
 		t.Error("a signature was written for an invalid package")
 	}
-	for _, args := range [][]string{{}, {"nope"}, {"keygen"}, {"keygen", "../evil"}, {"keygen", "-x"}, {"sign"}, {"sign", "-key", "acme.key"}} {
+	for _, args := range [][]string{{}, {"nope"}, {"keygen"}, {"keygen", "../evil"}, {"keygen", "-x"}, {"keygen", "_team"}, {"keygen", ".hidden"}, {"keygen", "UPPER"}, {"sign"}, {"sign", "-key", "acme.key"}} {
 		if runMarket(args, &out, &errb) == 0 {
 			t.Errorf("%v succeeded", args)
 		}

@@ -147,8 +147,10 @@ func TestEnvTemplatePackageChecks(t *testing.T) {
 		"cfn custom": func(p *MarketPackage) {
 			p.EnvTemplates[0].Body += "  C:\n    Type: AWS::CloudFormation::CustomResource\n"
 		},
-		"macro":      func(p *MarketPackage) { p.EnvTemplates[0].Body += "Transform: AWS::Include\n" },
-		"serverless": func(p *MarketPackage) { p.EnvTemplates[0].Body += "  F:\n    Type: AWS::Serverless::Function\n" },
+		"macro":               func(p *MarketPackage) { p.EnvTemplates[0].Body += "Transform: AWS::Include\n" },
+		"serverless":          func(p *MarketPackage) { p.EnvTemplates[0].Body += "  F:\n    Type: AWS::Serverless::Function\n" },
+		"JSON unicode escape": func(p *MarketPackage) { p.EnvTemplates[0].Body += `{"Type": "AWS::\u0049AM::Role"}` + "\n" },
+		"YAML line escape":    func(p *MarketPackage) { p.EnvTemplates[0].Body += "  R:\n    Type: \"AWS::I\\\nAM::Role\"\n" },
 		"huge body": func(p *MarketPackage) {
 			p.EnvTemplates[0].Body = sandboxBody + strings.Repeat("# x\n", maxTemplateBody)
 		},

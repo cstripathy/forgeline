@@ -55,6 +55,9 @@ var (
 	tplKeyRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}$`)
 	tplParamRE  = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]{0,40}$`)
 	tplForbidRE = regexp.MustCompile(`(?i)AWS::IAM::|AWS::CloudFormation::(?:Stack|CustomResource|Macro|WaitCondition)|\bCustom::|Transform\b|AWS::Serverless`)
+	// A backslash is how JSON and quoted YAML spell a character another way (\u0049 for I, or a
+	// backslash at the end of a line to join two), which would hide a forbidden type from the check above.
+	tplEscapeRE = regexp.MustCompile(`\\`)
 )
 
 func tplID(pkg, key string) string { return tplIDPrefix + pkg + "." + key }
@@ -77,6 +80,8 @@ func (t MarketEnvTemplate) check() error {
 		return fmt.Errorf("template %q: the cost estimate is $0 to $500 a month", t.Key)
 	case strings.TrimSpace(t.Body) == "" || len(t.Body) > maxTemplateBody:
 		return fmt.Errorf("template %q: the body is empty or over %d KB", t.Key, maxTemplateBody>>10)
+	case tplEscapeRE.MatchString(t.Body):
+		return fmt.Errorf("template %q: a packaged template body may not contain a backslash (escapes could hide what the checks look for)", t.Key)
 	case tplForbidRE.MatchString(t.Body):
 		return fmt.Errorf("template %q: a packaged template may not create IAM resources, nested stacks, custom resources or use macros or Transform", t.Key)
 	case len(t.Parameters) > maxTplParams:
