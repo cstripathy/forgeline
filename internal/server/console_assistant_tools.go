@@ -83,6 +83,13 @@ func (s *Server) lookupHelp(ctx context.Context, role authn.Role) string {
 			fmt.Fprintf(&b, "- %s %s\n", t.name, t.help)
 		}
 	}
+	if role.AtLeast(authn.Developer) {
+		for _, t := range s.pluginTools(ctx) {
+			if sc := scopeFrom(ctx); sc == nil || sc.allows(t.name) {
+				fmt.Fprintf(&b, "- %s %s\n", t.name, t.help)
+			}
+		}
+	}
 	return b.String()
 }
 
@@ -112,6 +119,18 @@ func parseLookup(reply string) (lookupCall, bool) {
 // runLookup runs one lookup as the given person. The result is text to be shown to the model as
 // untrusted data.
 func (s *Server) runLookup(ctx context.Context, p Principal, c lookupCall) (string, error) {
+	if strings.HasPrefix(c.Tool, pluginToolPrefix) {
+		if !p.Role.AtLeast(authn.Developer) {
+			return "", fmt.Errorf("%s is not available to your role", c.Tool)
+		}
+		if sc := scopeFrom(ctx); !sc.allows(c.Tool) {
+			return "", fmt.Errorf("%s is not one of this agent's tools", c.Tool)
+		}
+		if len(c.Args) == 0 {
+			c.Args = json.RawMessage(`{}`)
+		}
+		return s.runPluginLookup(ctx, c)
+	}
 	for _, t := range assistantLookups() {
 		if t.name != c.Tool {
 			continue

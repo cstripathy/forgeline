@@ -158,3 +158,10 @@ skills it adds and the package fingerprint. Install is pinned to that fingerprin
 changed since you opened it must be reviewed again. Updates add versions and keep the tier.
 
 ![A package's permissions before install](53-marketplace-package.png)
+
+Packages can also carry **plugins**: tools from a container image. Turn them on with the switch at
+the top of the page (Docker must answer). The install screen names the image and its tools, and you
+choose whether it may use the network and which vault secret it gets for each variable it asks for;
+the defaults give it nothing.
+
+![Granting a plugin its permissions](54-marketplace-plugin.png)

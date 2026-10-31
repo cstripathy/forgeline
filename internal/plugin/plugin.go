@@ -21,7 +21,8 @@ import (
 )
 
 var (
-	imageRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]{0,200}@sha256:[0-9a-f]{64}$`)
+	// A pinned image is name@sha256:digest, or a local image's id (sha256:...), which is a content hash too.
+	imageRE = regexp.MustCompile(`^([a-z0-9][a-z0-9._/-]{0,200}@)?sha256:[0-9a-f]{64}$`)
 	envRE   = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 	idRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,38}$`)
 )
@@ -29,7 +30,7 @@ var (
 // Spec is what an administrator approved for one plugin.
 type Spec struct {
 	ID      string
-	Image   string            // name@sha256:digest; a tag alone is refused
+	Image   string            // name@sha256:digest or sha256:id; a tag alone is refused
 	Network bool              // false is --network none
 	Env     map[string]string // granted secrets, passed for one call and never put on a command line
 }
@@ -209,4 +210,42 @@ func (r *Runner) Call(ctx context.Context, s Spec, tool string, args map[string]
 		return nil
 	})
 	return text, err
+}
+
+// Ping checks that the docker daemon answers.
+func (r *Runner) Ping(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, r.Docker, "version", "--format", "{{.Server.Version}}")
+	cmd.Env = append(cleanEnv(nil), r.ExtraEnv...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker did not answer: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Ensure makes sure the image is present, pulling it if it is not. A pull by digest cannot return
+// different bytes, so what runs is what was pinned.
+func (r *Runner) Ensure(ctx context.Context, image string) error {
+	run := func(args ...string) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, r.Docker, args...)
+		cmd.Env = append(cleanEnv(nil), r.ExtraEnv...)
+		return cmd.CombinedOutput()
+	}
+	if err := (Spec{ID: "check", Image: image}).Check(); err != nil {
+		return err
+	}
+	if _, err := run("image", "inspect", "--format", "{{.Id}}", image); err == nil {
+		return nil
+	}
+	if !strings.Contains(image, "@") {
+		return errors.New("the image is not on this host and an image id cannot be pulled")
+	}
+	if out, err := run("pull", "--quiet", image); err != nil {
+		return fmt.Errorf("could not pull the image: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
 }

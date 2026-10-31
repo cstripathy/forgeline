@@ -103,6 +103,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /v1/ai/agents/{id}/rollback", s.requireRole(authn.Admin, s.handleAgentRollback))
 	mux.Handle("POST /v1/ai/agents/{id}/disable", s.requireRole(authn.Admin, s.handleAgentEnable(true)))
 	mux.Handle("POST /v1/ai/agents/{id}/enable", s.requireRole(authn.Admin, s.handleAgentEnable(false)))
+	mux.Handle("GET /v1/plugins", s.requireRole(authn.Developer, s.handleGetPlugins))
+	mux.Handle("PUT /v1/plugins/settings", s.requireRole(authn.Admin, s.handlePluginSettings))
 	mux.Handle("GET /v1/market/packages", s.requireRole(authn.Developer, s.handleMarketList))
 	mux.Handle("POST /v1/market/install", s.requireRole(authn.Admin, s.handleMarketInstall))
 	mux.Handle("DELETE /v1/market/install/{id}", s.requireRole(authn.Admin, s.handleMarketUninstall))

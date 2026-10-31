@@ -139,8 +139,10 @@ A run's `status` is one of `queued`, `running`, `succeeded`, `failed`, `canceled
 | `POST /v1/ai/agents/{id}/rollback` | admin | Copy an old version forward as the current one. |
 | `POST /v1/ai/agents/{id}/disable` | admin | Turn an agent off (it cannot run or be listed). |
 | `POST /v1/ai/agents/{id}/enable` | admin | Turn it back on. |
+| `GET /v1/plugins` | developer | Whether plugins are on, and the installed plugins with their tools, network grant and secret names (never values). |
+| `PUT /v1/plugins/settings` | admin | Turn plugins on or off. Turning on checks that Docker answers. |
 | `GET /v1/market/packages` | developer | The catalogue: each package with its skills, agents, tools, tiers, sha256, and what is installed. |
-| `POST /v1/market/install` | admin | Install or upgrade a package. Needs the sha256 that was reviewed; an upgrade never raises the tier. |
+| `POST /v1/market/install` | admin | Install or upgrade a package. Needs the sha256 that was reviewed; an upgrade never raises the tier. `grants` gives each plugin its network and secrets; nothing is granted by default. |
 | `DELETE /v1/market/install/{id}` | admin | Forget an install and disable its agents. Skills and agents stay with their history. |
 | `POST /v1/ai/agents/{id}/chat` | developer | Talk to an agent (`version` optional). It uses only its own tools, as the asker. |
 | `GET /v1/aws/accounts` | viewer | The connected AWS accounts: the primary one and any added. |

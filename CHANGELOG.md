@@ -7,19 +7,14 @@ section in the pull request that makes the change; a release moves it under its 
 ## [Unreleased]
 
 ### Added
-- **Plugin runner (internal, not yet exposed).** `internal/plugin` runs an MCP server from a
-  digest-pinned container image, one container per call: read-only filesystem, no capabilities,
-  non-root, no network unless granted, memory, cpu, process and time limits, output cut at a size
-  limit, secrets passed through the environment and never on a command line, and the container
-  removed after a timeout. Nothing in the console uses it yet. (note 018, step 1)
-- **Marketplace.** A catalogue of ready-made skills and agents (failed-run triage, cost watch,
-  security review, cluster health). Each package shows what its agents may read and which tier they
-  could reach before anyone installs it, and carries a sha256 that is checked when the server starts
-  and again at install, so what is installed is what was reviewed. An administrator chooses the most
-  an installed agent may do (T0, or T1 to let it file proposals a person still approves); an update
-  adds new versions, never raises that, and skips what did not change. Uninstalling disables the
-  agents and keeps their history. Plugins (containerised MCP servers) and a git-hosted source are not
-  built yet. (note 017)
+- **Plugins.** A marketplace package can carry MCP servers shipped as container images. They are off
+  until an administrator turns them on (Docker must answer), and install grants nothing by default:
+  network and each secret are separate choices. Each call runs in a fresh container that is
+  read-only, non-root, has no extra privileges, no network unless granted and limits on memory, time
+  and output. Their tools become read-only lookups an agent can be given; arguments are checked
+  against a schema first and the output is treated as data. An update that asks for a different
+  image, network or secrets needs a new grant. `FORGELINE_MARKET_DIR` adds a local directory of
+  package manifests. (note 018)
 - **Environments.** Temporary infrastructure and developer boxes from catalog templates (a developer
   box and a QA sandbox): each has an owner, a purpose, a time limit and a cost estimate, shown before
   you ask. Approval is the same four-eyes cloud change as ever, unless an administrator turns on a
