@@ -7,6 +7,8 @@ section in the pull request that makes the change; a release moves it under its 
 ## [Unreleased]
 
 ### Fixed
+- An MCP server that died at start sometimes reported no reason, because its last words on stderr were
+  read after the process had been seen to exit. This made a test in `internal/mcp` fail on a busy machine.
 - A cloud change canceled while its preview was still being prepared came back as waiting for approval when the preview finished; the cancellation now stays.
 
 ### Added
