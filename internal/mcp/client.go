@@ -42,6 +42,9 @@ type Client struct {
 	nextID int
 	mu     sync.Mutex
 	stderr *capture
+	// errDone closes when the process's stderr has been read to the end, so an error that reports
+	// what the process said does not race with the process exiting.
+	errDone chan struct{}
 }
 
 type capture struct {
@@ -70,11 +73,18 @@ func Start(ctx context.Context, cmd *exec.Cmd) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Client{cmd: cmd, stdin: stdin, lines: make(chan []byte, 16), stderr: &capture{}}
-	cmd.Stderr = c.stderr
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+	c := &Client{cmd: cmd, stdin: stdin, lines: make(chan []byte, 16), stderr: &capture{}, errDone: make(chan struct{})}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	go func() {
+		io.Copy(c.stderr, stderr)
+		close(c.errDone)
+	}()
 	go func() {
 		sc := bufio.NewScanner(stdout)
 		sc.Buffer(make([]byte, 1<<20), 8<<20)
@@ -149,6 +159,10 @@ func (c *Client) call(ctx context.Context, method string, params any, out any) e
 }
 
 func (c *Client) fail(err error) error {
+	select { // a process that is dying has said its last words by the time its stderr closes
+	case <-c.errDone:
+	case <-time.After(2 * time.Second):
+	}
 	msg := firstLine(c.stderr.String())
 	if msg != "" {
 		return fmt.Errorf("the MCP server stopped: %s", msg)
